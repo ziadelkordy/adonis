@@ -1,0 +1,211 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Sundial design tokens
+   Sunny, beachy, flowery. Yellow leads, pink accents, lagoon supports.
+   Every color in the app comes from here — nothing hardcoded downstream.
+   ========================================================================== */
+@theme {
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+
+  /* Surfaces — warm paper, never pure white */
+  --color-cream: #fffbf2;
+  --color-sand: #fdf3e0;
+  --color-shell: #ffffff;
+
+  /* Sun — the primary ramp */
+  --color-sun-50: #fff9e5;
+  --color-sun-100: #fff0bf;
+  --color-sun-200: #ffe485;
+  --color-sun-300: #ffd84d;
+  --color-sun-400: #ffc820;
+  --color-sun-500: #f2ac00;
+  --color-sun-600: #c07f00;
+  --color-sun-700: #8f5e00;
+
+  /* Bloom — the pink accent ramp */
+  --color-bloom-50: #fff0f5;
+  --color-bloom-100: #ffdce8;
+  --color-bloom-200: #ffb8d0;
+  --color-bloom-300: #ff8fb4;
+  --color-bloom-400: #fb6c9c;
+  --color-bloom-500: #e14c81;
+  --color-bloom-600: #b83566;
+  --color-bloom-700: #8d2650;
+
+  /* Lagoon — sea green, keeps the yellow/pink from going saccharine */
+  --color-lagoon-50: #eafaf6;
+  --color-lagoon-100: #d0f4ec;
+  --color-lagoon-300: #6fdcc9;
+  --color-lagoon-500: #16a48f;
+  --color-lagoon-600: #0f7d6d;
+
+  /* Ink — warm neutrals, brown-black rather than grey */
+  --color-ink-900: #3b2a1a;
+  --color-ink-800: #52402c;
+  --color-ink-700: #6b563f;
+  --color-ink-500: #97836b;
+  --color-ink-400: #b5a28a;
+  --color-ink-300: #d8c9b2;
+  --color-ink-200: #ece0cd;
+  --color-ink-100: #f5ecdd;
+
+  /* Radii — generous and soft, like sea glass */
+  --radius-petal: 1.25rem;
+  --radius-shell: 1.75rem;
+  --radius-dune: 2.5rem;
+
+  /* Elevation — warm-tinted shadows, never neutral grey */
+  --shadow-low: 0 1px 2px rgb(59 42 26 / 0.06), 0 2px 8px rgb(59 42 26 / 0.04);
+  --shadow-mid: 0 2px 4px rgb(59 42 26 / 0.05), 0 12px 28px -8px rgb(59 42 26 / 0.14);
+  --shadow-high: 0 4px 8px rgb(59 42 26 / 0.06), 0 24px 56px -12px rgb(59 42 26 / 0.22);
+  --shadow-glow-sun: 0 8px 32px -6px rgb(242 172 0 / 0.45);
+  --shadow-glow-bloom: 0 8px 32px -6px rgb(225 76 129 / 0.4);
+
+  --ease-sway: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-cream);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Fraunces has SOFT and WONK axes — dial in the sunny, rounded end */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-variation-settings: 'SOFT' 60, 'WONK' 1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: var(--color-sun-200);
+    color: var(--color-ink-900);
+  }
+
+  /* One focus ring for the whole app, visible on every surface */
+  :focus-visible {
+    outline: 2px solid var(--color-bloom-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* The signature: a sunrise wash used behind headers and hero surfaces */
+  .bg-sunrise {
+    background-image:
+      radial-gradient(120% 90% at 12% 0%, var(--color-sun-200) 0%, transparent 55%),
+      radial-gradient(110% 80% at 88% 8%, var(--color-bloom-100) 0%, transparent 58%),
+      linear-gradient(180deg, var(--color-sun-50) 0%, var(--color-cream) 70%);
+  }
+
+  .text-sunrise {
+    background-image: linear-gradient(
+      100deg,
+      var(--color-sun-500) 0%,
+      var(--color-sun-400) 30%,
+      var(--color-bloom-400) 78%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /*
+   * Editorial scrim for text over bright artwork.
+   * Uses a near-black warm base rather than ink-900: a mid-alpha brown over a
+   * saturated pink sea reads as muddy maroon, while this stays clean and lets
+   * the sunny top half of the artwork through untouched.
+   */
+  .scrim-editorial {
+    background-image: linear-gradient(
+      to top,
+      rgb(26 18 10 / 0.96) 0%,
+      rgb(26 18 10 / 0.88) 30%,
+      rgb(26 18 10 / 0.62) 52%,
+      rgb(26 18 10 / 0.18) 78%,
+      rgb(26 18 10 / 0) 100%
+    );
+  }
+
+  /*
+   * Text sitting directly on generated artwork. The art is procedural, so no
+   * scrim tuning can guarantee contrast for every seed — a shadow makes light
+   * type legible even when a sun disc lands right behind it.
+   */
+  .text-on-art {
+    text-shadow:
+      0 1px 2px rgb(26 18 10 / 0.45),
+      0 2px 14px rgb(26 18 10 / 0.55);
+  }
+
+  /* Frosted panel — the beach-glass look, over the sunrise wash */
+  .glass {
+    background-color: rgb(255 255 255 / 0.66);
+    backdrop-filter: blur(14px) saturate(1.35);
+    -webkit-backdrop-filter: blur(14px) saturate(1.35);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Slow drift for the decorative sun and blossom shapes */
+  @keyframes sway {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(0, -14px, 0) rotate(4deg);
+    }
+  }
+
+  .animate-sway {
+    animation: sway 9s var(--ease-sway) infinite;
+  }
+}
