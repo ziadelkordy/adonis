@@ -9,7 +9,14 @@ export const CATEGORY_META: Record<Category, { label: string; emoji: string; hue
   nightlife: { label: 'Nightlife', emoji: '🌅', hue: 'bloom' },
   creative: { label: 'Creative', emoji: '🎨', hue: 'sun' },
   market: { label: 'Markets', emoji: '🧺', hue: 'sun' },
+  fun: { label: 'Fun & games', emoji: '🎡', hue: 'bloom' },
 }
+
+/**
+ * What the Fun tab shows. An editorial grouping over the categories rather than
+ * a separate fetch, so switching tabs is instant and costs no extra requests.
+ */
+export const FUN_CATEGORIES: Category[] = ['fun', 'nightlife', 'creative', 'water']
 
 export const DESTINATIONS: Destination[] = [
   {

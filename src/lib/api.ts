@@ -32,6 +32,34 @@ export interface DayItem {
   startMin: number
 }
 
+export interface EventItem {
+  id: string
+  name: string
+  date: string
+  time: string | null
+  venueName: string | null
+  city: string | null
+  lat: number | null
+  lon: number | null
+  distanceKm: number | null
+  segment: string | null
+  genre: string | null
+  priceMin: number | null
+  priceMax: number | null
+  currency: string | null
+  imageUrl: string | null
+  url: string
+}
+
+export interface EventsResponse {
+  events: EventItem[]
+  count: number
+  cached: boolean
+  /** False when no events provider is set up — a normal state, not an error. */
+  configured: boolean
+  reason?: string
+}
+
 /** Thrown for any non-2xx response, carrying the server's own message. */
 export class ApiError extends Error {
   // Assigned explicitly rather than as a parameter property, which
@@ -99,6 +127,9 @@ export const api = {
     request<{ places: Place[]; cached: boolean; count: number; radiusM: number }>(
       `/places/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`,
     ),
+
+  events: (lat: number, lon: number, radiusM: number) =>
+    request<EventsResponse>(`/events/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`),
 
   reverseGeocode: (lat: number, lon: number) =>
     request<{ label: string; city: string | null; country: string | null }>(

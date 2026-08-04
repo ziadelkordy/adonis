@@ -14,6 +14,12 @@ import {
 } from './auth.ts'
 import { assertDatabaseReachable, sql } from './db.ts'
 import {
+  EventsNotConfiguredError,
+  EventsUpstreamError,
+  fetchEvents,
+  isEventsConfigured,
+} from './events.ts'
+import {
   CATEGORIES,
   type Category,
   UpstreamError,
@@ -354,6 +360,41 @@ app.get('/api/places/nearby', async (c) => {
   }
 })
 
+app.get('/api/events/nearby', async (c) => {
+  const lat = parseCoord(c.req.query('lat'), 90)
+  const lon = parseCoord(c.req.query('lon'), 180)
+  if (lat === null || lon === null) {
+    return c.json({ error: 'lat and lon are required and must be valid coordinates.' }, 400)
+  }
+
+  const requested = Number(c.req.query('radius') ?? 25_000)
+  const radiusM = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1000), 200_000)
+    : 25_000
+
+  try {
+    const { events, cached } = await fetchEvents(lat, lon, radiusM)
+    return c.json({ events, cached, count: events.length, configured: true })
+  } catch (error) {
+    if (error instanceof EventsNotConfiguredError) {
+      // 200, not an error status: "no provider configured" is a normal state the
+      // UI needs to explain, not a failure to report.
+      return c.json({
+        events: [],
+        count: 0,
+        cached: false,
+        configured: false,
+        reason: error.message,
+      })
+    }
+    if (error instanceof EventsUpstreamError) {
+      return c.json({ error: error.message }, 503)
+    }
+    console.error('events failed:', error)
+    return c.json({ error: 'Could not load events.' }, 500)
+  }
+})
+
 app.get('/api/geo/reverse', async (c) => {
   const lat = parseCoord(c.req.query('lat'), 90)
   const lon = parseCoord(c.req.query('lon'), 180)
@@ -388,4 +429,9 @@ await pruneExpiredSessions()
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`Sundial API listening on http://localhost:${info.port}`)
+  if (!isEventsConfigured()) {
+    console.log(
+      'Events: no TICKETMASTER_API_KEY set, so the Events tab will explain how to add one.',
+    )
+  }
 })

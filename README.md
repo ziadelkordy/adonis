@@ -36,9 +36,50 @@ pnpm build               # production build of the app
 | Section | What it does |
 |---|---|
 | **Today** | A real time-positioned timeline, 6am to midnight. Nudge activities ±30 min, drop them, and see gaps surfaced as "1h 15m free". Live "now" marker and running totals. Requires an account. |
-| **Explore** | Real places near you from OpenStreetMap, closest first. Filter by category, search by name/area/cuisine, and choose a radius from 1–10 km. No account needed. |
+| **Explore** | Three tabs — see below. No account needed to browse. |
 | **Escapes** | Ten curated destinations — nightly rate, flight length, best months, temperature. "Somewhere worth a week of your life" is an editorial judgement, not a map feature, so these stay hand-picked. |
 | **Saved** | Everything hearted, split into nearby places and far-away escapes. Requires an account. |
+
+### Explore's three tabs
+
+| Tab | Source | Notes |
+|---|---|---|
+| **Nearby** | OpenStreetMap | Everything mapped around you, closest first, with category chips showing live counts. |
+| **Fun** | OpenStreetMap | The same fetch, narrowed to `fun`, `nightlife`, `creative` and `water` — piers, arcades, bowling, escape rooms, aquariums, bars, studios, beaches. A client-side filter, not a second request, so switching is instant. |
+| **Events** | Ticketmaster | Real dated listings with venue and ticket prices, soonest first, within 25 km. Needs a free API key. |
+
+Filters reset when you switch tabs: a category chosen under Nearby may not exist
+at all within Fun, which would otherwise land you on an unexplained empty grid.
+
+### Events needs a key, and why
+
+**OpenStreetMap has no events data.** It maps physical geography, not things
+happening at a time, so this tab cannot come from the same source as the rest of
+the app. There is no good keyless alternative either: Eventbrite removed public
+event search in 2020, and Songkick and Bandsintown both require partner approval.
+
+Ticketmaster's Discovery API is the one solid free, self-serve option — no credit
+card, 5000 calls/day. Without a key the tab explains how to add one rather than
+inventing listings:
+
+```bash
+cp server/.env.example server/.env
+# set TICKETMASTER_API_KEY=<your Consumer Key>
+pnpm dev:api      # restart; the API loads server/.env automatically
+```
+
+Swapping provider (Foursquare, SeatGeek, PredictHQ) means rewriting
+`server/src/events.ts` only — the endpoint shape and the entire UI stay as they
+are.
+
+Event responses are cached in memory for 10 minutes rather than in Postgres:
+listings change through the day and, unlike place data, aren't worth persisting.
+
+`TICKETMASTER_URL` is overridable, which is how the whole path was verified
+against a local fixture without a real key — including string-typed coordinates,
+`HH:MM:SS` times, listings with no price or venue location, and malformed entries
+that must be dropped rather than half-rendered. Provider image URLs that fail to
+load fall back to the generated artwork.
 
 ## Architecture
 
@@ -50,7 +91,9 @@ server/
   src/migrate.ts       Migration runner, records what it has applied
   src/auth.ts          scrypt password hashing + opaque session tokens
   src/places.ts        Overpass + Nominatim, normalisation, Postgres caching
+  src/events.ts        Ticketmaster Discovery, defensive normalisation
   src/index.ts         Hono routes
+  .env.example         Copy to .env for the events key
 src/
   lib/api.ts           Typed client for the API
   lib/useGeolocation.ts

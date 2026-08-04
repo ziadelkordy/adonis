@@ -8,6 +8,7 @@ export type Category =
   | 'nightlife'
   | 'creative'
   | 'market'
+  | 'fun'
 
 /**
  * Vacation spots stay curated rather than coming from OpenStreetMap: "somewhere

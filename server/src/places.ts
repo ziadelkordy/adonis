@@ -15,6 +15,7 @@ export const CATEGORIES = [
   'nightlife',
   'creative',
   'market',
+  'fun',
 ] as const
 
 export type Category = (typeof CATEGORIES)[number]
@@ -25,11 +26,28 @@ export type Category = (typeof CATEGORIES)[number]
  * (water, market) are listed before broader ones (outdoors, food).
  */
 const CATEGORY_FILTERS: Record<Category, Array<[string, string]>> = {
+  /*
+   * Listed first so the unambiguously-amusement tags win. A water park is
+   * "fun" rather than "on the water", which is why it lives here and not below.
+   */
+  fun: [
+    ['tourism', 'theme_park'],
+    ['tourism', 'zoo'],
+    ['tourism', 'aquarium'],
+    ['tourism', 'attraction'],
+    ['leisure', 'water_park'],
+    ['leisure', 'amusement_arcade'],
+    ['leisure', 'bowling_alley'],
+    ['leisure', 'escape_game'],
+    ['leisure', 'trampoline_park'],
+    ['leisure', 'miniature_golf'],
+    ['leisure', 'ice_rink'],
+    ['amenity', 'casino'],
+  ],
   water: [
     ['natural', 'beach'],
     ['leisure', 'marina'],
     ['leisure', 'swimming_pool'],
-    ['leisure', 'water_park'],
   ],
   market: [
     ['amenity', 'marketplace'],
@@ -92,6 +110,7 @@ const DEFAULT_DURATION_MIN: Record<Category, number> = {
   nightlife: 105,
   creative: 105,
   market: 60,
+  fun: 120,
 }
 
 export interface Place {
