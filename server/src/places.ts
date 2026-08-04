@@ -160,6 +160,38 @@ export function haversineKm(
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
+/*
+ * Small physical markers rather than somewhere you'd go: a milestone, a plaque,
+ * a memorial stone. These carry tourism=attraction in OSM but are signposts.
+ */
+const HISTORIC_MARKERS = new Set([
+  'milestone',
+  'memorial',
+  'plaque',
+  'boundary_stone',
+  'wayside_cross',
+  'wayside_shrine',
+  'survey_point',
+])
+
+/**
+ * Rejects individual rides and roadside markers.
+ *
+ * In OSM an `attraction=*` tag means a single ride or feature *inside* a park —
+ * `attraction=roller_coaster`, `big_wheel`, `carousel`, `amusement_ride`. Those
+ * are not destinations: listing "West Coaster" and "Pacific Wheel" alongside
+ * Pacific Park is noise, since you go to the park, not to one ride.
+ *
+ * Note the parent venues are unaffected: Pacific Park is `tourism=theme_park`
+ * and Santa Monica Pier is `man_made=pier` + `tourism=attraction`, and neither
+ * carries an `attraction` tag.
+ */
+function isRideOrMarker(tags: Record<string, string>): boolean {
+  if (tags.attraction) return true
+  if (tags.historic && HISTORIC_MARKERS.has(tags.historic)) return true
+  return false
+}
+
 function categoryFor(tags: Record<string, string>): Category | null {
   for (const category of Object.keys(CATEGORY_FILTERS) as Category[]) {
     for (const [key, value] of CATEGORY_FILTERS[category]) {
@@ -221,6 +253,7 @@ function normalize(element: OverpassElement): Place | null {
   const tags = element.tags ?? {}
   const name = tags.name?.trim()
   if (!name) return null
+  if (isRideOrMarker(tags)) return null
 
   const point = element.center ?? { lat: element.lat, lon: element.lon }
   if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return null
@@ -290,9 +323,25 @@ export async function reverseGeocode(lat: number, lon: number): Promise<PlaceNam
 /* Overpass (places)                                                           */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * Bump whenever the tag filters or normalisation change. It is part of the cache
+ * key, so old entries stop matching instead of quietly serving results shaped by
+ * the previous rules — otherwise a filtering fix appears to do nothing in any
+ * area already cached.
+ *
+ * v2: rides (attraction=*) and roadside markers excluded.
+ */
+const NORMALIZER_VERSION = 2
+
 /** Cache buckets are ~1km, which is granular enough without thrashing the cache. */
 function cacheKey(lat: number, lon: number, radiusM: number, categories: Category[]): string {
-  return [lat.toFixed(2), lon.toFixed(2), radiusM, [...categories].sort().join('+')].join(':')
+  return [
+    `v${NORMALIZER_VERSION}`,
+    lat.toFixed(2),
+    lon.toFixed(2),
+    radiusM,
+    [...categories].sort().join('+'),
+  ].join(':')
 }
 
 const CACHE_TTL_HOURS = 24 * 7

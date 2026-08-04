@@ -20,8 +20,51 @@ const TABS: Array<{ id: Tab; label: string; emoji: string }> = [
 
 const FUN_SET = new Set<Category>(FUN_CATEGORIES)
 
-/** Events are worth travelling further for than a coffee. */
-const EVENTS_RADIUS_M = 25_000
+/*
+ * Events get their own, wider radii: you'll cross a city for a match or a gig,
+ * and stadiums and arenas are usually well outside a 2km walk.
+ */
+const EVENT_RADIUS_OPTIONS = [
+  { value: 25_000, label: '25 km' },
+  { value: 50_000, label: '50 km' },
+  { value: 100_000, label: '100 km' },
+]
+
+/**
+ * What to browse events by. Ticketmaster splits classification into a broad
+ * `segment` (Music / Sports / Arts & Theatre) and a narrower `genre` (Football,
+ * Comedy, Rock), so these match on whichever is the natural fit — "Sports" is a
+ * segment, "Football" and "Comedy" are genres.
+ */
+const EVENT_FILTERS: Array<{
+  id: string
+  label: string
+  emoji: string
+  matches: (event: EventItem) => boolean
+}> = [
+  { id: 'music', label: 'Music', emoji: '🎵', matches: (e) => e.segment === 'Music' },
+  { id: 'sports', label: 'Sports', emoji: '🏟️', matches: (e) => e.segment === 'Sports' },
+  {
+    id: 'football',
+    label: 'Football',
+    emoji: '🏈',
+    // Catches both "Football" and "American Football".
+    matches: (e) => /football/i.test(e.genre ?? ''),
+  },
+  { id: 'comedy', label: 'Comedy', emoji: '🎤', matches: (e) => /comedy/i.test(e.genre ?? '') },
+  {
+    id: 'shows',
+    label: 'Shows & theatre',
+    emoji: '🎭',
+    matches: (e) => e.segment === 'Arts & Theatre',
+  },
+  {
+    id: 'family',
+    label: 'Family',
+    emoji: '🎠',
+    matches: (e) => /family|children/i.test(`${e.segment ?? ''} ${e.genre ?? ''}`),
+  },
+]
 
 type SortKey = 'distance' | 'name' | 'duration'
 
@@ -146,6 +189,8 @@ function EventsTab({ state }: { state: AppState }) {
   const [configured, setConfigured] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  const [radiusM, setRadiusM] = useState(EVENT_RADIUS_OPTIONS[0].value)
+  const [active, setActive] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let cancelled = false
@@ -153,7 +198,7 @@ function EventsTab({ state }: { state: AppState }) {
     setError(null)
 
     api
-      .events(coords.lat, coords.lon, EVENTS_RADIUS_M)
+      .events(coords.lat, coords.lon, radiusM)
       .then((result) => {
         if (cancelled) return
         setEvents(result.events)
@@ -169,7 +214,49 @@ function EventsTab({ state }: { state: AppState }) {
     return () => {
       cancelled = true
     }
-  }, [coords.lat, coords.lon, reload])
+  }, [coords.lat, coords.lon, radiusM, reload])
+
+  /** Counts come from the full result set, so a chip showing 0 is honest. */
+  const counts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const filter of EVENT_FILTERS) {
+      map.set(filter.id, events.filter((event) => filter.matches(event)).length)
+    }
+    return map
+  }, [events])
+
+  // Filters are OR-ed: picking Football and Comedy shows both.
+  const visible = useMemo(() => {
+    if (active.size === 0) return events
+    const chosen = EVENT_FILTERS.filter((filter) => active.has(filter.id))
+    return events.filter((event) => chosen.some((filter) => filter.matches(event)))
+  }, [events, active])
+
+  const toggle = (id: string) => {
+    setActive((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const radiusPicker = (
+    <label className="flex items-center gap-2">
+      <span className="text-sm text-ink-700">Within</span>
+      <select
+        value={radiusM}
+        onChange={(event) => setRadiusM(Number(event.target.value))}
+        className="h-11 rounded-full bg-shell px-4 pr-9 text-sm font-medium text-ink-900 ring-1 ring-ink-200 ring-inset shadow-low transition hover:ring-sun-300 focus:ring-2 focus:ring-bloom-400 focus:outline-none"
+      >
+        {EVENT_RADIUS_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 
   if (status === 'loading') {
     return (
@@ -257,28 +344,81 @@ function EventsTab({ state }: { state: AppState }) {
 
   if (events.length === 0) {
     return (
-      <EmptyState
-        emoji="🌙"
-        title="Nothing on around here"
-        description={`No listed events within ${EVENTS_RADIUS_M / 1000} km of ${
-          locationLabel ?? 'your location'
-        } right now. Quiet week.`}
-        action={<Button onClick={() => setReload((value) => value + 1)}>Check again</Button>}
-      />
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center gap-3">{radiusPicker}</div>
+        <EmptyState
+          emoji="🌙"
+          title="Nothing on around here"
+          description={`No listed events within ${radiusM / 1000} km of ${
+            locationLabel ?? 'your location'
+          } right now. Try a wider radius, or check back later.`}
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              {radiusM < 100_000 && (
+                <Button onClick={() => setRadiusM(100_000)}>Search within 100 km</Button>
+              )}
+              <Button variant="secondary" onClick={() => setReload((value) => value + 1)}>
+                Check again
+              </Button>
+            </div>
+          }
+        />
+      </div>
     )
   }
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-ink-700">
-        <span className="font-semibold text-ink-900">{events.length}</span>{' '}
-        {pluralize(events.length, 'event')} within {EVENTS_RADIUS_M / 1000} km, soonest first
-      </p>
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        {events.map((event, index) => (
-          <EventCard key={event.id} event={event} index={index} />
-        ))}
+      <div className="flex flex-wrap items-center gap-3">
+        {radiusPicker}
+        {active.size > 0 && (
+          <Button variant="ghost" onClick={() => setActive(new Set())}>
+            <XIcon className="size-4" />
+            Show everything
+          </Button>
+        )}
       </div>
+
+      {/* What kind of thing — football, comedy, gigs, theatre */}
+      <div className="flex flex-wrap items-center gap-2">
+        {EVENT_FILTERS.map((filter) => {
+          const count = counts.get(filter.id) ?? 0
+          if (count === 0 && !active.has(filter.id)) return null
+          return (
+            <Chip
+              key={filter.id}
+              selected={active.has(filter.id)}
+              onClick={() => toggle(filter.id)}
+            >
+              <span aria-hidden>{filter.emoji}</span>
+              {filter.label}
+              <span className="text-ink-400">{count}</span>
+            </Chip>
+          )
+        })}
+      </div>
+
+      <p className="text-sm text-ink-700">
+        <span className="font-semibold text-ink-900">{visible.length}</span>{' '}
+        {pluralize(visible.length, 'event')}
+        {visible.length !== events.length && ` of ${events.length}`} within {radiusM / 1000} km,
+        soonest first
+      </p>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          emoji="🎭"
+          title="Nothing of that kind on"
+          description="No events near you match those filters right now. Clear them to see everything that's on."
+          action={<Button onClick={() => setActive(new Set())}>Show everything</Button>}
+        />
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map((event, index) => (
+            <EventCard key={event.id} event={event} index={index} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -390,7 +530,7 @@ export function Explore({ state }: { state: AppState }) {
     events: {
       title: locationLabel ? `On soon near ${locationLabel}` : 'On soon near you',
       description:
-        'Real dated listings — gigs, matches, theatre — soonest first, with what tickets actually cost. This tab uses a separate events provider, since OpenStreetMap has no events data.',
+        'Football and other sport, comedy nights, gigs, theatre and family shows — real dated listings, soonest first, with what tickets actually cost. This tab uses a separate events provider, since OpenStreetMap has no events data.',
     },
   }
 

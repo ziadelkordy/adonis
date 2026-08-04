@@ -46,10 +46,39 @@ pnpm build               # production build of the app
 |---|---|---|
 | **Nearby** | OpenStreetMap | Everything mapped around you, closest first, with category chips showing live counts. |
 | **Fun** | OpenStreetMap | The same fetch, narrowed to `fun`, `nightlife`, `creative` and `water` — piers, arcades, bowling, escape rooms, aquariums, bars, studios, beaches. A client-side filter, not a second request, so switching is instant. |
-| **Events** | Ticketmaster | Real dated listings with venue and ticket prices, soonest first, within 25 km. Needs a free API key. |
+| **Events** | Ticketmaster | Real dated listings — football and other sport, comedy, gigs, theatre, family shows — soonest first, filterable by kind, within 25/50/100 km. Needs a free API key. |
 
 Filters reset when you switch tabs: a category chosen under Nearby may not exist
 at all within Fun, which would otherwise land you on an unexplained empty grid.
+
+#### Rides are not destinations
+
+In OSM an `attraction=*` tag marks a single ride or feature *inside* a park —
+`attraction=roller_coaster`, `big_wheel`, `carousel`, `amusement_ride`. Anything
+carrying one is dropped, because listing "West Coaster" and "Pacific Wheel"
+next to Pacific Park is noise: you go to the park, not to one ride.
+
+The parent venues are unaffected, which is the point — Pacific Park is
+`tourism=theme_park` and Santa Monica Pier is `man_made=pier` +
+`tourism=attraction`, and neither carries an `attraction` tag. Small roadside
+markers are dropped too (`historic=milestone`, `memorial`, `plaque` and similar),
+which is what removed "Historic end of Route 66".
+
+Occasional mis-tagged rides still slip through — a ride tagged only
+`tourism=attraction`, with no `attraction=*` at all, is indistinguishable from a
+real destination without resorting to a name blocklist.
+
+`NORMALIZER_VERSION` in `places.ts` is part of the cache key: bump it whenever the
+tag filters or normalisation change, or already-cached areas keep serving results
+shaped by the old rules and the fix appears to do nothing.
+
+#### Event kinds
+
+Ticketmaster splits classification into a broad `segment` (Music / Sports / Arts &
+Theatre) and a narrower `genre` (Football, Comedy, Rock), so the filter chips match
+on whichever fits: Sports is a segment, Football and Comedy are genres. Chips are
+OR-ed and show live counts, and a chip with nothing behind it is hidden rather
+than shown as a dead end.
 
 ### Events needs a key, and why
 
