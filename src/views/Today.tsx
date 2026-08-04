@@ -235,7 +235,7 @@ function TimelineItem({
 /* -------------------------------------------------------------------------- */
 
 export function Today({ state }: { state: AppState }) {
-  const { day, removeFromDay, moveInDay, clearDay, setView } = state
+  const { day, removeFromDay, moveInDay, clearDay, restoreStarterDay, setView } = state
   const currentMinute = useCurrentMinute()
 
   const resolved = useMemo<Resolved[]>(
@@ -385,7 +385,14 @@ export function Today({ state }: { state: AppState }) {
             emoji="🌻"
             title="A completely open day"
             description="That is either a problem or a luxury. Either way, Explore has 24 ideas sorted by price, distance and time of day."
-            action={<Button onClick={() => setView('explore')}>Browse things to do</Button>}
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button onClick={() => setView('explore')}>Browse things to do</Button>
+                <Button variant="secondary" onClick={restoreStarterDay}>
+                  Restore the example day
+                </Button>
+              </div>
+            }
           />
         ) : (
           <div className="rounded-shell bg-sand/50 p-4 ring-1 ring-ink-200/60 ring-inset sm:p-6">

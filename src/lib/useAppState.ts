@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ACTIVITY_BY_ID, STARTER_DAY } from './data'
+import { highestPlacementId, loadState, saveState } from './storage'
 import type { Activity, ScheduledItem, TimeOfDay, ViewId } from './types'
 
 export const DAY_START_MIN = 6 * 60
@@ -72,15 +73,26 @@ export interface Toast {
   tone: 'success' | 'warning'
 }
 
+const STARTER_SAVED = ['a-sunrise-hike', 'd-amalfi', 'd-kauai']
+
+/** Read once per mount, before first paint, so there is no starter-day flicker. */
+const RESTORED = typeof window === 'undefined' ? null : loadState()
+
 export function useAppState() {
   const [view, setView] = useState<ViewId>('today')
-  const [day, setDay] = useState<ScheduledItem[]>(STARTER_DAY)
+  const [day, setDay] = useState<ScheduledItem[]>(() => RESTORED?.day ?? STARTER_DAY)
   const [saved, setSaved] = useState<Set<string>>(
-    () => new Set(['a-sunrise-hike', 'd-amalfi', 'd-kauai']),
+    () => new Set(RESTORED ? RESTORED.saved : STARTER_SAVED),
   )
   const [toast, setToast] = useState<Toast | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const nextId = useRef(1000)
+  // Resume above any restored placement id so a new add can't reuse one.
+  const nextId = useRef(Math.max(1000, highestPlacementId(RESTORED?.day ?? [])))
+
+  // Persist on every change. Both values are small, so a plain write is fine.
+  useEffect(() => {
+    saveState({ day, saved: [...saved] })
+  }, [day, saved])
 
   const showToast = useCallback((message: string, tone: Toast['tone'] = 'success') => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -160,6 +172,15 @@ export function useAppState() {
     showToast('Cleared the day. Blank slate.')
   }, [showToast])
 
+  /*
+   * Now that the day persists, clearing it is permanent — a refresh no longer
+   * brings the example day back. This is the way back to it.
+   */
+  const restoreStarterDay = useCallback(() => {
+    setDay(STARTER_DAY)
+    showToast('Put the example day back.')
+  }, [showToast])
+
   return {
     view,
     setView,
@@ -172,6 +193,7 @@ export function useAppState() {
     removeFromDay,
     moveInDay,
     clearDay,
+    restoreStarterDay,
   }
 }
 

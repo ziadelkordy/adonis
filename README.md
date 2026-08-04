@@ -4,7 +4,8 @@ Plan your day, find things to do, and dream up your next escape. Sunny, beachy,
 flowery — yellow leads, pink accents, sea green keeps it from going saccharine.
 
 A **front-end demo**: everything you see is generated locally. There is no
-server, no accounts, and every place, price and rating is invented.
+server and no accounts, and every place, price and rating is invented. Your day
+and your saved items persist in `localStorage`.
 
 ## Run it
 
@@ -43,6 +44,7 @@ src/
     types.ts        Activity, Destination, ScheduledItem
     data.ts         The mock catalogue + category/price metadata
     useAppState.ts  Single state hook: day, saved, toasts, slot-finding
+    storage.ts      localStorage load/save with validation
     format.ts       Time, duration, price, distance, seeded RNG
     cx.ts           className joiner
     scene.ts        Category hue -> artwork palette
@@ -74,10 +76,35 @@ requests to fail or slow the page down.
 Because the art is procedural, no scrim tuning can guarantee contrast for every
 seed — so light text over it also carries the `.text-on-art` shadow.
 
+## Persistence
+
+Your day and your saved items are written to `localStorage` under
+`sundial:state:v1` on every change, and read back once per mount before first
+paint so there is no starter-day flicker. `src/lib/storage.ts` owns this, and it
+is deliberately paranoid about what it reads back:
+
+- Every access is wrapped in `try/catch` — Safari in private mode *throws* on
+  `localStorage` rather than returning null, and quota errors are possible on
+  write. If storage is unavailable the app just runs in memory.
+- A corrupt or wrongly-shaped payload is treated as a first visit rather than
+  crashing the app.
+- Individual entries are validated and dropped: an activity that no longer
+  exists in the catalogue, a start time outside the day, a duplicate id, a
+  non-string saved id. A partially-valid day is restored rather than discarded.
+- `loadState` returns `null` **only** when there is nothing usable stored. That
+  is what distinguishes a first visit (seed `STARTER_DAY`) from a day the user
+  deliberately cleared (an empty day that must stay empty across refreshes).
+- Placement ids (`p-1004`) resume above the highest restored one, so an add
+  after a refresh cannot reuse an id and duplicate a React key.
+
+Because clearing the day is now permanent, the Today empty state offers
+**Restore the example day** as the way back to the seeded content.
+
+Bump `STORAGE_KEY` if the persisted shape changes; old payloads are then ignored
+rather than mis-parsed.
+
 ## Notes for future work
 
-- **Nothing persists.** Refreshing resets your day and your hearts. `localStorage`
-  in `useAppState` would be a small, self-contained next step.
 - **No `AnimatePresence`.** Exit animations do not resolve in this
   motion 12 / React 19 pairing — removed items stayed in the DOM after their
   state was gone, and views wedged on the outgoing section. Enter animations and
