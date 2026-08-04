@@ -13,12 +13,7 @@ import {
   verifyPassword,
 } from './auth.ts'
 import { assertDatabaseReachable, sql } from './db.ts'
-import {
-  EventsNotConfiguredError,
-  EventsUpstreamError,
-  fetchEvents,
-  isEventsConfigured,
-} from './events.ts'
+import { fetchEventsBundle, isEventsConfigured } from './events.ts'
 import {
   CATEGORIES,
   type Category,
@@ -373,23 +368,16 @@ app.get('/api/events/nearby', async (c) => {
     : 25_000
 
   try {
-    const { events, cached } = await fetchEvents(lat, lon, radiusM)
-    return c.json({ events, cached, count: events.length, configured: true })
+    const bundle = await fetchEventsBundle(lat, lon, radiusM)
+    return c.json({
+      events: bundle.events,
+      count: bundle.events.length,
+      sources: bundle.sources,
+      // Sports need no key; only comedy/music/theatre listings do.
+      ticketingConfigured: bundle.ticketingConfigured,
+      venuesPending: bundle.venuesPending,
+    })
   } catch (error) {
-    if (error instanceof EventsNotConfiguredError) {
-      // 200, not an error status: "no provider configured" is a normal state the
-      // UI needs to explain, not a failure to report.
-      return c.json({
-        events: [],
-        count: 0,
-        cached: false,
-        configured: false,
-        reason: error.message,
-      })
-    }
-    if (error instanceof EventsUpstreamError) {
-      return c.json({ error: error.message }, 503)
-    }
     console.error('events failed:', error)
     return c.json({ error: 'Could not load events.' }, 500)
   }
@@ -429,9 +417,9 @@ await pruneExpiredSessions()
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`Sundial API listening on http://localhost:${info.port}`)
-  if (!isEventsConfigured()) {
-    console.log(
-      'Events: no TICKETMASTER_API_KEY set, so the Events tab will explain how to add one.',
-    )
-  }
+  console.log(
+    isEventsConfigured()
+      ? 'Events: sports from ESPN + ticketed listings from Ticketmaster.'
+      : 'Events: sports from ESPN (no key needed). Set TICKETMASTER_API_KEY to add comedy, music and theatre.',
+  )
 })

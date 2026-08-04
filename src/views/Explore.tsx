@@ -186,7 +186,8 @@ function EventsTab({ state }: { state: AppState }) {
 
   const [events, setEvents] = useState<EventItem[]>([])
   const [status, setStatus] = useState<LoadStatus>('idle')
-  const [configured, setConfigured] = useState(true)
+  const [ticketingConfigured, setTicketingConfigured] = useState(true)
+  const [venuesPending, setVenuesPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [radiusM, setRadiusM] = useState(EVENT_RADIUS_OPTIONS[0].value)
@@ -202,7 +203,8 @@ function EventsTab({ state }: { state: AppState }) {
       .then((result) => {
         if (cancelled) return
         setEvents(result.events)
-        setConfigured(result.configured)
+        setTicketingConfigured(result.ticketingConfigured)
+        setVenuesPending(result.venuesPending)
         setStatus('ready')
       })
       .catch((caught) => {
@@ -283,61 +285,56 @@ function EventsTab({ state }: { state: AppState }) {
   }
 
   /*
-   * Not an error state. OpenStreetMap carries no events at all, so this tab needs
-   * a separate provider, and saying so plainly beats showing invented listings.
+   * Sports fixtures need no key, so this is a slim aside rather than a wall: it
+   * only explains what a ticketing key would *add* (comedy, music, theatre).
    */
-  if (!configured) {
+  const ticketingNote = !ticketingConfigured && (
+    <div className="rounded-petal bg-sun-50 p-4 ring-1 ring-sun-200 ring-inset">
+      <p className="text-sm text-ink-800">
+        <span className="font-semibold">Sports fixtures need no setup</span> — these come straight
+        from public schedules. Comedy, music and theatre listings need a free{' '}
+        <a
+          href="https://developer-acct.ticketmaster.com/user/register"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="font-medium text-bloom-600 underline decoration-bloom-200 underline-offset-2 hover:decoration-bloom-500"
+        >
+          Ticketmaster key
+        </a>{' '}
+        (no card): put it in <code className="rounded bg-sand px-1.5 py-0.5 text-xs">server/.env</code>{' '}
+        as <code className="rounded bg-sand px-1.5 py-0.5 text-xs">TICKETMASTER_API_KEY</code> and
+        restart the API.
+      </p>
+      <div className="mt-3">
+        <Button size="sm" variant="secondary" onClick={() => setReload((value) => value + 1)}>
+          <SparkleIcon className="size-4" />
+          I've added a key — check again
+        </Button>
+      </div>
+    </div>
+  )
+
+  /*
+   * Venues arrive from the schedules without coordinates and are geocoded in the
+   * background at one per second, so an early visit can legitimately have nothing
+   * to show yet. Saying so beats an empty grid that looks broken.
+   */
+  if (events.length === 0 && venuesPending > 0) {
     return (
-      <div className="rounded-shell bg-shell p-6 ring-1 ring-ink-200/70 ring-inset shadow-low sm:p-8">
-        <span className="grid size-12 place-items-center rounded-full bg-sun-100 text-2xl" aria-hidden>
-          🎟️
-        </span>
-        <h3 className="mt-4 text-xl font-semibold text-ink-900">Events needs a free API key</h3>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-700">
-          Everywhere else in Sundial uses OpenStreetMap, which maps places rather than things
-          happening at a time — it has no events data at all. Real listings have to come from an
-          events provider, and Ticketmaster's is free and takes about two minutes to set up. No card
-          required.
-        </p>
-
-        <ol className="mt-5 space-y-3 text-sm text-ink-700">
-          {[
-            <>
-              Get a key at{' '}
-              <a
-                href="https://developer-acct.ticketmaster.com/user/register"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="font-medium text-bloom-600 underline decoration-bloom-200 underline-offset-2 hover:decoration-bloom-500"
-              >
-                developer.ticketmaster.com
-              </a>{' '}
-              and copy the <span className="font-medium text-ink-900">Consumer Key</span>.
-            </>,
-            <>
-              Put it in <code className="rounded bg-sand px-1.5 py-0.5 text-xs">server/.env</code> as{' '}
-              <code className="rounded bg-sand px-1.5 py-0.5 text-xs">TICKETMASTER_API_KEY=…</code>
-            </>,
-            <>
-              Restart the API (<code className="rounded bg-sand px-1.5 py-0.5 text-xs">pnpm dev:api</code>
-              ) and reload this tab.
-            </>,
-          ].map((step, index) => (
-            <li key={index} className="flex gap-3">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-sun-400 text-xs font-semibold text-ink-900">
-                {index + 1}
-              </span>
-              <span className="pt-0.5">{step}</span>
-            </li>
-          ))}
-        </ol>
-
-        <div className="mt-6">
-          <Button onClick={() => setReload((value) => value + 1)}>
-            <SparkleIcon className="size-4" />
-            I've added a key — check again
-          </Button>
-        </div>
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center gap-3">{radiusPicker}</div>
+        <EmptyState
+          emoji="🛰️"
+          title="Working out which venues are near you"
+          description={`Sports schedules list a venue name but no coordinates, so Sundial is looking up ${venuesPending} of them in the background. Give it a moment and check again.`}
+          action={
+            <Button onClick={() => setReload((value) => value + 1)}>
+              <SparkleIcon className="size-4" />
+              Check again
+            </Button>
+          }
+        />
+        {ticketingNote}
       </div>
     )
   }
@@ -398,12 +395,19 @@ function EventsTab({ state }: { state: AppState }) {
         })}
       </div>
 
-      <p className="text-sm text-ink-700">
-        <span className="font-semibold text-ink-900">{visible.length}</span>{' '}
-        {pluralize(visible.length, 'event')}
-        {visible.length !== events.length && ` of ${events.length}`} within {radiusM / 1000} km,
-        soonest first
+      <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+        <span>
+          <span className="font-semibold text-ink-900">{visible.length}</span>{' '}
+          {pluralize(visible.length, 'event')}
+          {visible.length !== events.length && ` of ${events.length}`} within {radiusM / 1000} km,
+          soonest first
+        </span>
+        {venuesPending > 0 && (
+          <Badge tone="sun">still locating {venuesPending} venues</Badge>
+        )}
       </p>
+
+      {ticketingNote}
 
       {visible.length === 0 ? (
         <EmptyState
@@ -530,7 +534,7 @@ export function Explore({ state }: { state: AppState }) {
     events: {
       title: locationLabel ? `On soon near ${locationLabel}` : 'On soon near you',
       description:
-        'Football and other sport, comedy nights, gigs, theatre and family shows — real dated listings, soonest first, with what tickets actually cost. This tab uses a separate events provider, since OpenStreetMap has no events data.',
+        "Real dated listings near you, soonest first. Football, baseball, basketball, hockey and soccer fixtures come from public schedules and need no setup; comedy, gigs and theatre — with ticket prices — need a free key.",
     },
   }
 

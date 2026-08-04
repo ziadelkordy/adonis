@@ -5,6 +5,7 @@ const USER_AGENT = 'Sundial/0.1 (personal project; local development)'
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse'
+const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search'
 
 export const CATEGORIES = [
   'outdoors',
@@ -293,6 +294,8 @@ async function throttleNominatim(): Promise<void> {
 export interface PlaceName {
   label: string
   city: string | null
+  /** State/province, used to prioritise which event venues to geocode first. */
+  region: string | null
   country: string | null
 }
 
@@ -315,8 +318,35 @@ export async function reverseGeocode(lat: number, lon: number): Promise<PlaceNam
   return {
     label: body.name?.trim() || city || 'your area',
     city,
+    region: address.state ?? address.region ?? null,
     country: address.country ?? null,
   }
+}
+
+/**
+ * Forward geocoding: a free-text place name to coordinates. Used for event venues,
+ * which arrive as "SoFi Stadium, Inglewood, California" with no coordinates.
+ *
+ * Shares `throttleNominatim` with the reverse lookup, so the two together stay
+ * inside Nominatim's one-request-per-second policy.
+ */
+export async function geocodePlace(query: string): Promise<{ lat: number; lon: number } | null> {
+  await throttleNominatim()
+
+  const url = `${NOMINATIM_SEARCH_URL}?q=${encodeURIComponent(query)}&format=json&limit=1`
+  const response = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!response.ok) return null
+
+  const body = (await response.json()) as Array<{ lat?: string; lon?: string }>
+  const first = body[0]
+  if (!first?.lat || !first?.lon) return null
+
+  const lat = Number(first.lat)
+  const lon = Number(first.lon)
+  return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null
 }
 
 /* -------------------------------------------------------------------------- */

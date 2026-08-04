@@ -34,6 +34,8 @@ export interface DayItem {
 
 export interface EventItem {
   id: string
+  /** 'espn' = keyless sports fixtures; 'ticketmaster' = ticketed listings. */
+  source: 'espn' | 'ticketmaster'
   name: string
   date: string
   time: string | null
@@ -54,10 +56,15 @@ export interface EventItem {
 export interface EventsResponse {
   events: EventItem[]
   count: number
-  cached: boolean
-  /** False when no events provider is set up — a normal state, not an error. */
-  configured: boolean
-  reason?: string
+  /** Which providers contributed to this response. */
+  sources: { espn: boolean; ticketmaster: boolean }
+  /**
+   * Sports need no key. This is false when a Ticketmaster key would additionally
+   * unlock comedy, music and theatre listings.
+   */
+  ticketingConfigured: boolean
+  /** Venues still being geocoded in the background; more may appear shortly. */
+  venuesPending: number
 }
 
 /** Thrown for any non-2xx response, carrying the server's own message. */

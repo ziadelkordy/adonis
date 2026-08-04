@@ -146,13 +146,15 @@ export function EventCard({ event, index = 0 }: { event: EventItem; index?: numb
             )}
           </div>
 
+          {/* Only ticketed listings actually lead to a checkout — a fixture link
+              goes to a schedule page, so calling it "Tickets" would mislead. */}
           <a
             href={event.url}
             target="_blank"
             rel="noreferrer noopener"
             className="inline-flex h-8 shrink-0 items-center rounded-full bg-sun-400 px-3.5 text-[0.8125rem] font-medium whitespace-nowrap text-ink-900 shadow-low transition-all duration-200 hover:bg-sun-300 hover:shadow-glow-sun"
           >
-            Tickets
+            {event.source === 'ticketmaster' ? 'Tickets' : 'Match details'}
           </a>
         </div>
       </div>

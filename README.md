@@ -46,7 +46,7 @@ pnpm build               # production build of the app
 |---|---|---|
 | **Nearby** | OpenStreetMap | Everything mapped around you, closest first, with category chips showing live counts. |
 | **Fun** | OpenStreetMap | The same fetch, narrowed to `fun`, `nightlife`, `creative` and `water` — piers, arcades, bowling, escape rooms, aquariums, bars, studios, beaches. A client-side filter, not a second request, so switching is instant. |
-| **Events** | Ticketmaster | Real dated listings — football and other sport, comedy, gigs, theatre, family shows — soonest first, filterable by kind, within 25/50/100 km. Needs a free API key. |
+| **Events** | ESPN + Ticketmaster | Real dated listings — football and other sport, comedy, gigs, theatre, family shows — soonest first, filterable by kind, within 25/50/100 km. Sport needs no key. |
 
 Filters reset when you switch tabs: a category chosen under Nearby may not exist
 at all within Fun, which would otherwise land you on an unexplained empty grid.
@@ -80,16 +80,62 @@ on whichever fits: Sports is a segment, Football and Comedy are genres. Chips ar
 OR-ed and show live counts, and a chip with nothing behind it is hidden rather
 than shown as a dead end.
 
-### Events needs a key, and why
+### Where events come from
 
-**OpenStreetMap has no events data.** It maps physical geography, not things
-happening at a time, so this tab cannot come from the same source as the rest of
-the app. There is no good keyless alternative either: Eventbrite removed public
-event search in 2020, and Songkick and Bandsintown both require partner approval.
+**OpenStreetMap has no events data** — it maps physical geography, not things
+happening at a time — so events use two other providers:
 
-Ticketmaster's Discovery API is the one solid free, self-serve option — no credit
-card, 5000 calls/day. Without a key the tab explains how to add one rather than
-inventing listings:
+| Provider | Needs a key? | Gives |
+|---|---|---|
+| **ESPN** site API | No | Football (NFL + college), baseball, basketball (NBA/WNBA/college), hockey, soccer (MLS + Premier League) fixtures with venue and kick-off time |
+| **Ticketmaster** Discovery | Free key | Comedy, music, theatre, family shows — plus ticket prices and artwork |
+
+So the tab works out of the box for sport, and a key adds everything else.
+
+Both are searched together and the results merged. Ticketmaster also lists many
+fixtures, so the same game can arrive twice; the ticketed copy wins because it
+carries prices, matched on date + venue + a loose word overlap (the two word
+titles differently — "Dodgers vs. Giants" against "Kansas City Royals at Los
+Angeles Dodgers"). Either provider failing still returns the other.
+
+#### Why these two, and what was rejected
+
+Measured, not assumed:
+
+| Source | Outcome |
+|---|---|
+| **ESPN** site API | **Chosen.** Keyless and complete — a full 15-game MLB day, 185 college football games over a fortnight |
+| **Ticketmaster** | **Chosen** for non-sport. Free self-serve key, no card |
+| TheSportsDB | Keyless but the public test key caps every response at ~3 results, where an in-season MLB day has 15 |
+| SeatGeek | 403 without a client id |
+| Bandsintown | 403 — explicit deny without a registered app id |
+| Songkick | 401, key required |
+| Eventbrite | Public event search removed in Feb 2020 |
+| Resident Advisor | GraphQL sits behind Cloudflare |
+| OpenEventDatabase | Keyless, but France-only (Los Angeles returns 0, Paris 200) and mostly roadworks and procurement tenders |
+| City open data (Socrata/CKAN) | Keyless but per-city, and it is council meetings and permits rather than gigs |
+| PredictHQ | Paid |
+
+**Caveat on ESPN:** the endpoint is undocumented. It is widely used and stable in
+practice, but it is not a sanctioned public API, so it could change or start
+refusing traffic without notice. Everything degrades to "no sports events" rather
+than failing the request if that happens.
+
+#### Venue geocoding
+
+Sports schedules give a venue *name* and city but no coordinates, and "near me"
+needs coordinates. Venues are geocoded through Nominatim and cached in
+`event_venues` — including failures, so an unmappable venue isn't retried forever.
+
+Geocoding never happens on the request path. There are hundreds of venues across
+the leagues and a fortnight of fixtures, and at Nominatim's one-per-second limit,
+resolving even eight per request added **~9 seconds to every call** while still
+mostly resolving stadiums nowhere near the user. So requests read the cache only
+(~0.1s) and unresolved venues go to a background worker that drains at a polite
+one per second, prioritising the user's own state. The list fills in over the
+following minute; the UI says so while it does.
+
+#### Adding the ticketing key
 
 ```bash
 cp server/.env.example server/.env
@@ -120,7 +166,9 @@ server/
   src/migrate.ts       Migration runner, records what it has applied
   src/auth.ts          scrypt password hashing + opaque session tokens
   src/places.ts        Overpass + Nominatim, normalisation, Postgres caching
-  src/events.ts        Ticketmaster Discovery, defensive normalisation
+  src/events.ts        Merges both event providers, dedups across them
+  src/espn.ts          Keyless sports fixtures
+  src/venues.ts        Venue geocoding cache + background warmer
   src/index.ts         Hono routes
   .env.example         Copy to .env for the events key
 src/
@@ -218,7 +266,8 @@ scheduled item still renders when the user has moved or changed the radius.
 
 ## Attribution
 
-Place data © OpenStreetMap contributors, available under the
+Sports fixtures via ESPN's public site API. Ticketed listings via Ticketmaster's
+Discovery API. Place data © OpenStreetMap contributors, available under the
 [Open Database Licence](https://www.openstreetmap.org/copyright). Reverse
 geocoding by [Nominatim](https://nominatim.org/), place search by
 [Overpass](https://overpass-api.de/) — both free public services, used within

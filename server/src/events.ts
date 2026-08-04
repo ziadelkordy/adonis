@@ -1,4 +1,6 @@
+import { fetchFixtures } from './espn.ts'
 import { haversineKm } from './places.ts'
+import { loadVenueCache, pendingVenueCount, queueVenues, venueKey } from './venues.ts'
 
 /*
  * OpenStreetMap has no events — it maps physical geography, not things happening
@@ -18,6 +20,8 @@ export function isEventsConfigured(): boolean {
 
 export interface EventItem {
   id: string
+  /** Which provider supplied this, so the UI can attribute it. */
+  source: 'ticketmaster' | 'espn'
   name: string
   /** ISO date, e.g. "2026-08-09". Always present. */
   date: string
@@ -115,6 +119,7 @@ function normalize(raw: RawEvent, lat: number, lon: number): EventItem | null {
 
   return {
     id,
+    source: 'ticketmaster',
     name,
     date,
     // Ticketmaster sends "HH:MM:SS"; the seconds are never useful here.
@@ -151,19 +156,130 @@ export interface EventsResult {
   cached: boolean
 }
 
-export async function fetchEvents(
+/* -------------------------------------------------------------------------- */
+/* Sports fixtures (keyless)                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** Sports fixtures within the radius, using only already-geocoded venues. */
+async function sportsNearby(lat: number, lon: number, radiusM: number): Promise<EventItem[]> {
+  const fixtures = (await fetchFixtures()).filter((fixture) => fixture.venueName)
+
+  const parts = new Map<string, { name: string; city: string | null; region: string | null }>()
+  for (const fixture of fixtures) {
+    const name = fixture.venueName
+    if (!name) continue
+    parts.set(venueKey(name, fixture.city), {
+      name,
+      city: fixture.city,
+      region: fixture.region,
+    })
+  }
+
+  const coords = await loadVenueCache([...parts.keys()])
+
+  /*
+   * Anything not yet geocoded goes to the background warmer, ordered so venues in
+   * the user's own state are resolved first — without coordinates, matching the
+   * region is the only signal available for "might plausibly be in range".
+   */
+  const userRegion = await regionFor(lat, lon)
+  const unseen = [...parts.entries()]
+    .filter(([key]) => !coords.has(key))
+    .map(([, value]) => value)
+    .sort((a, b) => {
+      const aLocal = userRegion && a.region === userRegion ? 0 : 1
+      const bLocal = userRegion && b.region === userRegion ? 0 : 1
+      return aLocal - bLocal
+    })
+
+  queueVenues(unseen)
+
+  const items: EventItem[] = []
+
+  for (const fixture of fixtures) {
+    const name = fixture.venueName
+    if (!name) continue
+
+    const location = coords.get(venueKey(name, fixture.city))
+    if (!location) continue
+
+    const distanceKm = haversineKm(lat, lon, location.lat, location.lon)
+    if (distanceKm * 1000 > radiusM) continue
+
+    const start = new Date(fixture.startsAt)
+
+    items.push({
+      id: fixture.id,
+      source: 'espn',
+      // Local calendar date and time, which is what a listing should show.
+      date: localDate(start),
+      time: localTime(start),
+      name: fixture.name,
+      venueName: name,
+      city: fixture.city,
+      lat: location.lat,
+      lon: location.lon,
+      distanceKm,
+      segment: fixture.segment,
+      genre: fixture.genre,
+      // Sports schedules carry no pricing; inventing a number would be worse.
+      priceMin: null,
+      priceMax: null,
+      currency: null,
+      imageUrl: null,
+      url: fixture.url ?? 'https://www.espn.com/',
+    })
+  }
+
+  return items
+}
+
+/** The server's own timezone stands in for the user's — good enough for a date. */
+function localDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`
+}
+
+function localTime(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+const regionCache = new Map<string, string | null>()
+
+/** State/region name for the user's coordinates, cached per ~11km bucket. */
+async function regionFor(lat: number, lon: number): Promise<string | null> {
+  const key = `${lat.toFixed(1)}:${lon.toFixed(1)}`
+  const hit = regionCache.get(key)
+  if (hit !== undefined) return hit
+
+  try {
+    const { reverseGeocode } = await import('./places.ts')
+    const place = await reverseGeocode(lat, lon)
+    const region = place?.region ?? null
+    regionCache.set(key, region)
+    return region
+  } catch {
+    regionCache.set(key, null)
+    return null
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Ticketmaster                                                                */
+/* -------------------------------------------------------------------------- */
+
+async function ticketmasterNearby(
   lat: number,
   lon: number,
   radiusM: number,
-): Promise<EventsResult> {
+): Promise<EventItem[]> {
   const apiKey = process.env.TICKETMASTER_API_KEY?.trim()
-  if (!apiKey) throw new EventsNotConfiguredError('No events provider configured.')
+  if (!apiKey) throw new EventsNotConfiguredError('No ticketing provider configured.')
 
   const key = cacheKey(lat, lon, radiusM)
   const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-    return { events: hit.events, cached: true }
-  }
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.events
 
   const params = new URLSearchParams({
     apikey: apiKey,
@@ -210,5 +326,101 @@ export async function fetchEvents(
     })
 
   cache.set(key, { at: Date.now(), events })
-  return { events, cached: false }
+  return events
+}
+
+/* -------------------------------------------------------------------------- */
+/* Aggregate                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface EventsBundle {
+  events: EventItem[]
+  /** Which providers actually contributed, so the UI can attribute and explain. */
+  sources: { espn: boolean; ticketmaster: boolean }
+  /** True when a ticketing key would add comedy, music and theatre listings. */
+  ticketingConfigured: boolean
+  /** Venues still queued for geocoding; more events may appear shortly. */
+  venuesPending: number
+}
+
+/**
+ * Sports come from ESPN and need no key; comedy, music and theatre need a
+ * ticketing key. Either provider failing still returns the other, because half
+ * the listings beat an error page.
+ */
+export async function fetchEventsBundle(
+  lat: number,
+  lon: number,
+  radiusM: number,
+): Promise<EventsBundle> {
+  const [sportsResult, ticketsResult] = await Promise.allSettled([
+    sportsNearby(lat, lon, radiusM),
+    ticketmasterNearby(lat, lon, radiusM),
+  ])
+
+  const sports = sportsResult.status === 'fulfilled' ? sportsResult.value : []
+  const tickets = ticketsResult.status === 'fulfilled' ? ticketsResult.value : []
+
+  if (sportsResult.status === 'rejected') {
+    console.error('sports fixtures failed:', sportsResult.reason)
+  }
+  const ticketingConfigured = !(
+    ticketsResult.status === 'rejected' && ticketsResult.reason instanceof EventsNotConfiguredError
+  )
+  if (ticketsResult.status === 'rejected' && ticketingConfigured) {
+    console.error('ticketing failed:', ticketsResult.reason)
+  }
+
+  /*
+   * Ticketmaster also lists many games, so the same fixture can arrive twice.
+   * Ticketmaster's version wins: it carries prices and artwork. Matched on date
+   * plus venue plus a loose name overlap, since the two word titles differently
+   * ("Rams vs. Seahawks" against "Los Angeles Rams at Seattle Seahawks").
+   */
+  const merged = [...tickets]
+  for (const fixture of sports) {
+    const duplicate = tickets.some(
+      (ticket) =>
+        ticket.date === fixture.date &&
+        sameVenue(ticket.venueName, fixture.venueName) &&
+        namesOverlap(ticket.name, fixture.name),
+    )
+    if (!duplicate) merged.push(fixture)
+  }
+
+  merged.sort((a, b) => {
+    const byWhen = `${a.date}${a.time ?? '99:99'}`.localeCompare(`${b.date}${b.time ?? '99:99'}`)
+    return byWhen !== 0 ? byWhen : a.name.localeCompare(b.name)
+  })
+
+  return {
+    events: merged,
+    sources: { espn: sports.length > 0, ticketmaster: tickets.length > 0 },
+    ticketingConfigured,
+    venuesPending: pendingVenueCount(),
+  }
+}
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function sameVenue(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false
+  return normalizeText(a) === normalizeText(b)
+}
+
+/** True when the titles share enough distinctive words to be the same fixture. */
+function namesOverlap(a: string, b: string): boolean {
+  const skip = new Set(['at', 'vs', 'v', 'the', 'and'])
+  const words = (value: string) =>
+    new Set(normalizeText(value).split(' ').filter((word) => word.length > 2 && !skip.has(word)))
+
+  const left = words(a)
+  const right = words(b)
+  if (left.size === 0 || right.size === 0) return false
+
+  let shared = 0
+  for (const word of left) if (right.has(word)) shared += 1
+  return shared >= Math.min(2, Math.min(left.size, right.size))
 }
