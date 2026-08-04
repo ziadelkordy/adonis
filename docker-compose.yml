@@ -1,0 +1,24 @@
+# Sundial's own database. Deliberately on 5433, not the default 5432, so it can
+# never collide with any other Postgres already running on this machine.
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: sundial-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sundial
+      POSTGRES_PASSWORD: sundial_dev
+      POSTGRES_DB: sundial
+    ports:
+      - '5433:5432'
+    volumes:
+      - sundial_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sundial -d sundial']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sundial_pgdata:
+    name: sundial_pgdata
