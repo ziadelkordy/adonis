@@ -18,6 +18,8 @@ interface NavProps {
   view: ViewId
   onChange: (view: ViewId) => void
   savedCount: number
+  user: { displayName: string; email: string } | null
+  onSignOut: () => void
 }
 
 function TabButton({
@@ -81,7 +83,7 @@ function TabButton({
   )
 }
 
-export function Nav({ view, onChange, savedCount }: NavProps) {
+export function Nav({ view, onChange, savedCount, user, onSignOut }: NavProps) {
   const today = new Date()
   const dateLabel = today.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -128,7 +130,36 @@ export function Nav({ view, onChange, savedCount }: NavProps) {
               ))}
             </nav>
 
-            <p className="ml-auto hidden text-sm text-ink-700 md:ml-0 lg:block">{dateLabel}</p>
+            <div className="ml-auto flex items-center gap-3 md:ml-0">
+              <p className="hidden text-sm text-ink-700 lg:block">{dateLabel}</p>
+
+              {user ? (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-sun-300 to-bloom-300 text-sm font-semibold text-ink-900"
+                    title={user.email}
+                    aria-hidden
+                  >
+                    {user.displayName.slice(0, 1).toUpperCase()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    className="rounded-full px-2.5 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:bg-sun-100 hover:text-ink-900"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onChange('today')}
+                  className="rounded-full bg-sun-400 px-4 py-2 text-sm font-medium text-ink-900 shadow-low transition-all hover:bg-sun-300 hover:shadow-glow-sun"
+                >
+                  Sign in
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>

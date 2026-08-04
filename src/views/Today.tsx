@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { ACTIVITY_BY_ID, CATEGORY_META, CITY } from '@/lib/data'
-import { formatDuration, formatPrice, formatTime, pluralize } from '@/lib/format'
-import { DAY_END_MIN, DAY_START_MIN, type AppState } from '@/lib/useAppState'
-import type { Activity, ScheduledItem } from '@/lib/types'
+import type { DayItem, Place } from '@/lib/api'
+import { CATEGORY_META } from '@/lib/data'
+import { formatDistance, formatDuration, formatTime, pluralize } from '@/lib/format'
 import { cx } from '@/lib/cx'
+import { DAY_END_MIN, DAY_START_MIN, type AppState } from '@/lib/useAppState'
+import { AuthPanel } from '@/components/AuthPanel'
 import { ClockIcon, PinIcon, TrashIcon, XIcon } from '@/components/icons'
 import { Badge, Button, EmptyState } from '@/components/ui'
 
@@ -12,7 +13,6 @@ const PX_PER_MIN = 1.2
 const RAIL_START = DAY_START_MIN
 const RAIL_END = DAY_END_MIN
 
-/** Category → the accent used for an item's stripe and time label. */
 const STRIPE: Record<string, string> = {
   sun: 'bg-sun-400',
   bloom: 'bg-bloom-400',
@@ -20,8 +20,8 @@ const STRIPE: Record<string, string> = {
 }
 
 interface Resolved {
-  item: ScheduledItem
-  activity: Activity
+  item: DayItem
+  place: Place
   endMin: number
 }
 
@@ -49,15 +49,13 @@ function greetingFor(minute: number): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sun arc — where the day currently sits, 6am to 8pm                          */
+/* Sun arc                                                                     */
 /* -------------------------------------------------------------------------- */
 
 function SunArc({ minute }: { minute: number }) {
   const from = 6 * 60
   const to = 20 * 60
   const progress = Math.min(1, Math.max(0, (minute - from) / (to - from)))
-
-  // Semicircle from (10,70) to (170,70), radius 80
   const angle = Math.PI * (1 - progress)
   const x = 90 + 80 * Math.cos(angle)
   const y = 70 - 55 * Math.sin(angle)
@@ -71,13 +69,7 @@ function SunArc({ minute }: { minute: number }) {
           <stop offset="100%" stopColor="#FB6C9C" />
         </linearGradient>
       </defs>
-      <path
-        d="M 10 70 A 80 55 0 0 1 170 70"
-        fill="none"
-        stroke="#F5ECDD"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
+      <path d="M 10 70 A 80 55 0 0 1 170 70" fill="none" stroke="#F5ECDD" strokeWidth="3" strokeLinecap="round" />
       <path
         d="M 10 70 A 80 55 0 0 1 170 70"
         fill="none"
@@ -93,10 +85,6 @@ function SunArc({ minute }: { minute: number }) {
     </svg>
   )
 }
-
-/* -------------------------------------------------------------------------- */
-/* Stat tile                                                                   */
-/* -------------------------------------------------------------------------- */
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -123,9 +111,9 @@ function TimelineItem({
   onMove: (delta: number) => void
   isNow: boolean
 }) {
-  const { item, activity, endMin } = resolved
-  const category = CATEGORY_META[activity.category]
-  const height = Math.max(activity.durationMin * PX_PER_MIN, 72)
+  const { item, place, endMin } = resolved
+  const category = CATEGORY_META[place.category]
+  const height = Math.max(place.durationMin * PX_PER_MIN, 72)
 
   return (
     <motion.li
@@ -161,13 +149,15 @@ function TimelineItem({
           </div>
 
           <h3 className="mt-0.5 truncate text-[0.9375rem] font-semibold text-ink-900">
-            {activity.title}
+            {place.name}
           </h3>
 
-          {height > 92 && (
+          {height > 92 && (place.neighborhood || place.distanceKm !== undefined) && (
             <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-ink-700">
               <PinIcon className="size-3.5 shrink-0 text-bloom-400" />
-              {activity.place} · {activity.neighborhood}
+              {[place.neighborhood, place.distanceKm !== undefined && formatDistance(place.distanceKm)]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           )}
 
@@ -177,28 +167,24 @@ function TimelineItem({
                 <span aria-hidden>{category.emoji}</span>
                 {category.label}
               </Badge>
-              {activity.tags.slice(0, 2).map((tag) => (
-                <span key={tag}>· {tag}</span>
-              ))}
+              {place.openingHours && <span className="truncate">· {place.openingHours}</span>}
             </div>
           )}
         </div>
 
-        {/* Price and length, right-aligned — fills the width a wide rail leaves over */}
         <div className="hidden shrink-0 flex-col items-end justify-center gap-0.5 pr-1 text-right sm:flex">
           <span className="font-display text-base font-semibold text-ink-900">
-            {formatPrice(activity.price)}
+            ~{formatDuration(place.durationMin)}
           </span>
-          <span className="text-xs text-ink-500">{formatDuration(activity.durationMin)}</span>
+          {place.fee === false && <span className="text-xs text-lagoon-600">free</span>}
         </div>
 
-        {/* Controls appear on hover, stay reachable by keyboard */}
         <div className="flex shrink-0 flex-col items-end gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => onMove(-30)}
-              aria-label={`Move ${activity.title} 30 minutes earlier`}
+              aria-label={`Move ${place.name} 30 minutes earlier`}
               className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-sun-100 hover:text-ink-900"
             >
               <span aria-hidden className="text-sm leading-none">
@@ -208,7 +194,7 @@ function TimelineItem({
             <button
               type="button"
               onClick={() => onMove(30)}
-              aria-label={`Move ${activity.title} 30 minutes later`}
+              aria-label={`Move ${place.name} 30 minutes later`}
               className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-sun-100 hover:text-ink-900"
             >
               <span aria-hidden className="text-sm leading-none">
@@ -219,7 +205,7 @@ function TimelineItem({
           <button
             type="button"
             onClick={onRemove}
-            aria-label={`Remove ${activity.title} from your day`}
+            aria-label={`Remove ${place.name} from your day`}
             className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-bloom-100 hover:text-bloom-600"
           >
             <TrashIcon className="size-4" />
@@ -235,31 +221,37 @@ function TimelineItem({
 /* -------------------------------------------------------------------------- */
 
 export function Today({ state }: { state: AppState }) {
-  const { day, removeFromDay, moveInDay, clearDay, restoreStarterDay, setView } = state
+  const {
+    user,
+    authStatus,
+    dayItems,
+    placeById,
+    removeFromDay,
+    moveInDay,
+    clearDay,
+    setView,
+    locationLabel,
+  } = state
   const currentMinute = useCurrentMinute()
 
   const resolved = useMemo<Resolved[]>(
     () =>
-      day
+      dayItems
         .map((item) => {
-          const activity = ACTIVITY_BY_ID.get(item.activityId)
-          return activity
-            ? { item, activity, endMin: item.startMin + activity.durationMin }
-            : null
+          const place = placeById.get(item.placeId)
+          return place ? { item, place, endMin: item.startMin + place.durationMin } : null
         })
         .filter((entry): entry is Resolved => entry !== null)
         .sort((a, b) => a.item.startMin - b.item.startMin),
-    [day],
+    [dayItems, placeById],
   )
 
   const totals = useMemo(() => {
-    const bookedMin = resolved.reduce((sum, entry) => sum + entry.activity.durationMin, 0)
-    const spend = resolved.reduce((sum, entry) => sum + entry.activity.price, 0)
-    const outdoorCount = resolved.filter((entry) => entry.activity.outdoor).length
-    return { bookedMin, spend, outdoorCount }
+    const bookedMin = resolved.reduce((sum, entry) => sum + entry.place.durationMin, 0)
+    const freeKnown = resolved.filter((entry) => entry.place.fee === false).length
+    return { bookedMin, freeKnown }
   }, [resolved])
 
-  /** Gaps worth surfacing as "free time" prompts. */
   const gaps = useMemo(() => {
     const found: Array<{ start: number; end: number }> = []
     let cursor = RAIL_START
@@ -270,13 +262,9 @@ export function Today({ state }: { state: AppState }) {
       }
       cursor = Math.max(cursor, entry.endMin)
     }
-
-    // Run the trailing gap all the way to midnight rather than stopping short,
-    // which would leave an unexplained dead band at the bottom of the rail.
     if (RAIL_END - cursor >= 90 && resolved.length > 0) {
       found.push({ start: cursor, end: RAIL_END })
     }
-
     return found
   }, [resolved])
 
@@ -287,13 +275,6 @@ export function Today({ state }: { state: AppState }) {
   }, [])
 
   const railHeight = (RAIL_END - RAIL_START) * PX_PER_MIN
-
-  /*
-   * The now-marker is drawn above the item cards, so when the current time falls
-   * inside a scheduled activity the pill lands on top of that card's own content.
-   * In that case the card already announces itself with a "Now" badge and a ring,
-   * so the rail marker is both redundant and in the way — draw it only in gaps.
-   */
   const nowInsideItem = resolved.some(
     (entry) => currentMinute >= entry.item.startMin && currentMinute < entry.endMin,
   )
@@ -304,9 +285,48 @@ export function Today({ state }: { state: AppState }) {
     day: 'numeric',
   })
 
+  if (authStatus === 'loading') {
+    return <div className="h-96 animate-pulse rounded-dune bg-sand/60" />
+  }
+
+  if (!user) {
+    return (
+      <div className="space-y-8">
+        <section className="relative overflow-hidden rounded-dune bg-sunrise p-6 ring-1 ring-white/70 ring-inset shadow-low sm:p-10">
+          <div
+            className="pointer-events-none absolute -top-16 -right-10 size-56 rounded-full bg-bloom-200/45 blur-3xl animate-sway"
+            aria-hidden
+          />
+          <div className="relative">
+            <p className="text-xs font-semibold tracking-[0.16em] text-bloom-500 uppercase">
+              {dateLabel}
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-semibold text-ink-900 sm:text-[2.75rem] sm:leading-[1.1]">
+              Your day, <span className="text-sunrise">in the sun</span>
+            </h1>
+            <p className="mt-3 max-w-lg text-sm text-ink-700 sm:text-base">
+              Sign in to plan a day and keep your saved places. Browsing what's nearby needs no
+              account at all.
+            </p>
+            <div className="mt-5">
+              <Button variant="secondary" onClick={() => setView('explore')}>
+                Just show me what's nearby
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <AuthPanel
+          state={state}
+          heading="Plan your day"
+          description="Your schedule and saved places live in Sundial's own database, tied to your account."
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-8">
-      {/* Hero */}
       <section className="relative overflow-hidden rounded-dune bg-sunrise p-6 ring-1 ring-white/70 ring-inset shadow-low sm:p-8">
         <div
           className="pointer-events-none absolute -top-16 -right-10 size-56 rounded-full bg-bloom-200/45 blur-3xl animate-sway"
@@ -320,23 +340,25 @@ export function Today({ state }: { state: AppState }) {
         <div className="relative flex flex-wrap items-start justify-between gap-6">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-bloom-500 uppercase">
-              {dateLabel} · {CITY}
+              {dateLabel}
+              {locationLabel && ` · ${locationLabel}`}
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-ink-900 sm:text-[2.75rem] sm:leading-[1.1]">
-              {greetingFor(currentMinute)}, <span className="text-sunrise">Ziad</span>
+              {greetingFor(currentMinute)},{' '}
+              <span className="text-sunrise">{user.displayName}</span>
             </h1>
             <p className="mt-3 max-w-md text-sm text-ink-700 sm:text-base">
               {resolved.length === 0
                 ? 'Nothing planned yet. Go find something worth leaving the house for.'
-                : `${resolved.length} ${pluralize(resolved.length, 'thing')} lined up, ${formatDuration(
+                : `${resolved.length} ${pluralize(resolved.length, 'thing')} lined up, about ${formatDuration(
                     totals.bookedMin,
-                  )} of it, ${totals.outdoorCount} in the sun.`}
+                  )} of it.`}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
               <Button onClick={() => setView('explore')}>Find something to do</Button>
               {resolved.length > 0 && (
-                <Button variant="ghost" onClick={clearDay}>
+                <Button variant="ghost" onClick={() => void clearDay()}>
                   <XIcon className="size-4" />
                   Clear day
                 </Button>
@@ -347,25 +369,27 @@ export function Today({ state }: { state: AppState }) {
           <div className="flex flex-col items-center">
             <SunArc minute={currentMinute} />
             <p className="mt-1 text-xs font-medium text-ink-700 tabular-nums">
-              {formatTime(currentMinute)} · sunset 7:42pm
+              {formatTime(currentMinute)}
             </p>
           </div>
         </div>
 
-        {/* Stats */}
         <dl className="relative mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Planned" value={`${resolved.length}`} hint={pluralize(resolved.length, 'activity', 'activities')} />
-          <Stat label="Time out" value={formatDuration(totals.bookedMin)} hint="door to door" />
-          <Stat label="Day spend" value={formatPrice(totals.spend)} hint="per person" />
           <Stat
-            label="Free"
+            label="Planned"
+            value={`${resolved.length}`}
+            hint={pluralize(resolved.length, 'place')}
+          />
+          <Stat label="Time out" value={formatDuration(totals.bookedMin)} hint="estimated" />
+          <Stat label="Known free" value={`${totals.freeKnown}`} hint="no entry fee" />
+          <Stat
+            label="Unplanned"
             value={formatDuration(Math.max(0, RAIL_END - RAIL_START - totals.bookedMin))}
-            hint="unclaimed"
+            hint="of 6am–midnight"
           />
         </dl>
       </section>
 
-      {/* Timeline */}
       <section>
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -384,20 +408,12 @@ export function Today({ state }: { state: AppState }) {
           <EmptyState
             emoji="🌻"
             title="A completely open day"
-            description="That is either a problem or a luxury. Either way, Explore has 24 ideas sorted by price, distance and time of day."
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button onClick={() => setView('explore')}>Browse things to do</Button>
-                <Button variant="secondary" onClick={restoreStarterDay}>
-                  Restore the example day
-                </Button>
-              </div>
-            }
+            description="That is either a problem or a luxury. Either way, Explore lists real places near you, closest first."
+            action={<Button onClick={() => setView('explore')}>Browse what's nearby</Button>}
           />
         ) : (
           <div className="rounded-shell bg-sand/50 p-4 ring-1 ring-ink-200/60 ring-inset sm:p-6">
             <div className="relative pl-14 sm:pl-16" style={{ height: railHeight }}>
-              {/* Hour rail */}
               {hours.map((minute) => (
                 <div
                   key={minute}
@@ -411,7 +427,6 @@ export function Today({ state }: { state: AppState }) {
                 </div>
               ))}
 
-              {/* Free-time prompts sit behind the cards */}
               {gaps.map((gap) => (
                 <button
                   key={`${gap.start}-${gap.end}`}
@@ -430,15 +445,12 @@ export function Today({ state }: { state: AppState }) {
                 </button>
               ))}
 
-              {/* Now line */}
               {nowVisible && (
                 <div
                   className="pointer-events-none absolute inset-x-0 z-20 flex items-center"
                   style={{ top: (currentMinute - RAIL_START) * PX_PER_MIN }}
                   aria-hidden
                 >
-                  {/* Label sits inside the track, not in the hour gutter, so it
-                      never collides with the hour it happens to fall next to. */}
                   <span className="size-2.5 shrink-0 rounded-full bg-bloom-500 ring-4 ring-bloom-200/60" />
                   <span className="ml-2 shrink-0 rounded-full bg-bloom-500 px-2 py-0.5 text-[0.625rem] font-semibold tracking-wide text-white uppercase shadow-low">
                     now
@@ -447,18 +459,14 @@ export function Today({ state }: { state: AppState }) {
                 </div>
               )}
 
-              {/* Items.
-                  No AnimatePresence: exit animations don't resolve in this
-                  motion/React pairing, which left removed items stranded in the
-                  DOM after their state was gone. Removal is instant instead. */}
               <ul className="absolute inset-0 z-10 list-none p-0">
                 {resolved.map((entry) => (
                   <TimelineItem
                     key={entry.item.id}
                     resolved={entry}
                     isNow={currentMinute >= entry.item.startMin && currentMinute < entry.endMin}
-                    onRemove={() => removeFromDay(entry.item.id)}
-                    onMove={(delta) => moveInDay(entry.item.id, delta)}
+                    onRemove={() => void removeFromDay(entry.item.id)}
+                    onMove={(delta) => void moveInDay(entry.item.id, delta)}
                   />
                 ))}
               </ul>

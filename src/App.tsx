@@ -10,7 +10,7 @@ import { Today } from '@/views/Today'
 
 export default function App() {
   const state = useAppState()
-  const { view, setView, saved, toast } = state
+  const { view, setView, savedIds, toast, user, logout } = state
 
   return (
     <div className="relative min-h-dvh overflow-x-clip">
@@ -22,7 +22,13 @@ export default function App() {
         <div className="absolute bottom-0 left-1/4 size-[26rem] rounded-full bg-lagoon-100/50 blur-[100px]" />
       </div>
 
-      <Nav view={view} onChange={setView} savedCount={saved.size} />
+      <Nav
+        view={view}
+        onChange={setView}
+        savedCount={savedIds.size}
+        user={user}
+        onSignOut={() => void logout()}
+      />
 
       <main
         id="main"
@@ -52,9 +58,18 @@ export default function App() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-200/70 pt-6 text-xs text-ink-500">
           <p className="inline-flex items-center gap-1.5">
             <SparkleIcon className="size-3.5 text-sun-500" />
-            Sundial — a demo. Every place, price and rating on here is invented.
+            Nearby places are real data from{' '}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline decoration-ink-300 underline-offset-2 hover:text-ink-700"
+            >
+              OpenStreetMap contributors
+            </a>{' '}
+            (ODbL). Vacation spots are hand-picked.
           </p>
-          <p>Built as a front-end demo · no accounts, no server</p>
+          <p>Your day and saved places live in Sundial's own database</p>
         </div>
       </footer>
 

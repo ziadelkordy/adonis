@@ -10,4 +10,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    // Same-origin in the browser, so the session cookie is sent without any
+    // CORS or SameSite special-casing.
+    proxy: {
+      '/api': {
+        target: process.env.API_URL ?? 'http://localhost:8787',
+        changeOrigin: false,
+      },
+    },
+  },
 })

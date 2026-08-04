@@ -5,8 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "pnpm --filter @sundial/server dev",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @sundial/server migrate",
+    "db:psql": "docker exec -it sundial-postgres psql -U sundial -d sundial",
+    "setup": "pnpm install && pnpm db:up && pnpm db:migrate",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "type-check": "tsc -b && pnpm --filter @sundial/server type-check",
     "preview": "vite preview"
   },
   "dependencies": {

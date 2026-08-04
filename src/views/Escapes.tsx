@@ -31,7 +31,7 @@ const FLIGHT_OPTIONS = [
 ]
 
 export function Escapes({ state }: { state: AppState }) {
-  const { saved, toggleSaved } = state
+  const { savedIds, toggleSaved } = state
   const [budget, setBudget] = useState<number>(Infinity)
   const [maxFlight, setMaxFlight] = useState<number>(Infinity)
   const [query, setQuery] = useState('')
@@ -184,8 +184,8 @@ export function Escapes({ state }: { state: AppState }) {
               key={destination.id}
               destination={destination}
               index={index}
-              saved={saved.has(destination.id)}
-              onToggleSaved={() => toggleSaved(destination.id)}
+              saved={savedIds.has(destination.id)}
+              onToggleSaved={() => void toggleSaved(destination.id)}
               featured={index === 0 && sort === 'featured' && !isFiltered}
             />
           ))}

@@ -1,234 +1,78 @@
 import { useMemo, useState } from 'react'
-import { ACTIVITIES, CATEGORY_META, PRICE_TIER_LABEL, TIME_OF_DAY_META } from '@/lib/data'
-import { formatDistance, formatPrice, pluralize } from '@/lib/format'
-import type { Category, PriceTier, TimeOfDay } from '@/lib/types'
-import type { AppState } from '@/lib/useAppState'
-import { cx } from '@/lib/cx'
-import { ActivityCard } from '@/components/ActivityCard'
-import { SlidersIcon, XIcon } from '@/components/icons'
+import { CATEGORY_META } from '@/lib/data'
+import { pluralize } from '@/lib/format'
+import type { Category } from '@/lib/types'
+import { RADIUS_OPTIONS, type AppState } from '@/lib/useAppState'
+import { PlaceCard } from '@/components/PlaceCard'
+import { PinIcon, SunIcon, XIcon } from '@/components/icons'
 import { Badge, Button, Chip, EmptyState, SectionHeader } from '@/components/ui'
 
-type SortKey = 'recommended' | 'price-asc' | 'price-desc' | 'rating' | 'duration' | 'distance'
+type SortKey = 'distance' | 'name' | 'duration'
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
-  { value: 'recommended', label: 'Recommended' },
-  { value: 'price-asc', label: 'Price: low to high' },
-  { value: 'price-desc', label: 'Price: high to low' },
-  { value: 'rating', label: 'Highest rated' },
-  { value: 'duration', label: 'Shortest first' },
   { value: 'distance', label: 'Closest first' },
+  { value: 'name', label: 'Name (A–Z)' },
+  { value: 'duration', label: 'Shortest visit' },
 ]
 
-const MAX_DISTANCE_KM = 40
 const CATEGORY_IDS = Object.keys(CATEGORY_META) as Category[]
-const TIME_IDS = Object.keys(TIME_OF_DAY_META) as TimeOfDay[]
-const PRICE_TIERS: PriceTier[] = [0, 1, 2, 3]
-
-interface Filters {
-  query: string
-  categories: Set<Category>
-  times: Set<TimeOfDay>
-  maxPriceTier: PriceTier
-  maxDistance: number
-  minRating: number
-  outdoorOnly: boolean
-}
-
-const EMPTY_FILTERS: Filters = {
-  query: '',
-  categories: new Set(),
-  times: new Set(),
-  maxPriceTier: 3,
-  maxDistance: MAX_DISTANCE_KM,
-  minRating: 0,
-  outdoorOnly: false,
-}
-
-function countActive(filters: Filters): number {
-  let count = 0
-  if (filters.query.trim()) count += 1
-  count += filters.categories.size
-  count += filters.times.size
-  if (filters.maxPriceTier < 3) count += 1
-  if (filters.maxDistance < MAX_DISTANCE_KM) count += 1
-  if (filters.minRating > 0) count += 1
-  if (filters.outdoorOnly) count += 1
-  return count
-}
 
 /* -------------------------------------------------------------------------- */
-/* Range slider                                                                */
+/* Location bar                                                                */
 /* -------------------------------------------------------------------------- */
 
-function RangeField({
-  label,
-  value,
-  displayValue,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string
-  value: number
-  displayValue: string
-  min: number
-  max: number
-  step: number
-  onChange: (value: number) => void
-}) {
-  const percent = ((value - min) / (max - min)) * 100
+function LocationBar({ state }: { state: AppState }) {
+  const { geo, locationLabel, usingFallbackLocation, radiusM, setRadiusM, coords } = state
 
   return (
-    <label className="block">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-ink-900">{label}</span>
-        <span className="text-sm font-semibold text-bloom-600 tabular-nums">{displayValue}</span>
+    <div className="flex flex-wrap items-center gap-3 rounded-shell bg-sunrise p-4 ring-1 ring-white/70 ring-inset shadow-low">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-shell/80 text-bloom-500 shadow-low">
+        <PinIcon className="size-5" />
       </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-2.5 h-1.5 w-full cursor-pointer appearance-none rounded-full outline-offset-4
-          [&::-webkit-slider-thumb]:size-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full
-          [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-sun-500
-          [&::-webkit-slider-thumb]:shadow-mid [&::-webkit-slider-thumb]:transition-transform
-          hover:[&::-webkit-slider-thumb]:scale-110
-          [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2
-          [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-sun-500"
-        style={{
-          background: `linear-gradient(to right, var(--color-sun-400) 0%, var(--color-bloom-400) ${percent}%, var(--color-ink-200) ${percent}%, var(--color-ink-200) 100%)`,
-        }}
-      />
-    </label>
-  )
-}
 
-/* -------------------------------------------------------------------------- */
-/* Filter panel                                                                */
-/* -------------------------------------------------------------------------- */
-
-function FilterPanel({
-  filters,
-  setFilters,
-  resultCount,
-}: {
-  filters: Filters
-  setFilters: (next: Filters) => void
-  resultCount: number
-}) {
-  const toggleCategory = (category: Category) => {
-    const categories = new Set(filters.categories)
-    if (categories.has(category)) categories.delete(category)
-    else categories.add(category)
-    setFilters({ ...filters, categories })
-  }
-
-  const toggleTime = (time: TimeOfDay) => {
-    const times = new Set(filters.times)
-    if (times.has(time)) times.delete(time)
-    else times.add(time)
-    setFilters({ ...filters, times })
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <p className="mb-2.5 text-sm font-semibold text-ink-900">Price</p>
-        <div className="flex flex-wrap gap-2">
-          {PRICE_TIERS.map((tier) => (
-            <Chip
-              key={tier}
-              selected={filters.maxPriceTier === tier}
-              onClick={() => setFilters({ ...filters, maxPriceTier: tier })}
-            >
-              {tier === 0 ? 'Free only' : `${PRICE_TIER_LABEL[tier]} or less`}
-            </Chip>
-          ))}
-        </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-ink-900">
+          {locationLabel ?? 'Locating…'}
+          {geo.status === 'granted' && !usingFallbackLocation && (
+            <span className="ml-2 align-middle text-xs font-normal text-lagoon-600">
+              · your location
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 text-xs text-ink-700">
+          {usingFallbackLocation
+            ? geo.status === 'denied'
+              ? 'Location declined — showing Santa Monica instead.'
+              : geo.status === 'prompting'
+                ? 'Asking your browser for permission…'
+                : 'Showing Santa Monica until you share your location.'
+            : `${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)} · accurate to ~${Math.round(
+                coords.accuracyM,
+              )}m`}
+        </p>
       </div>
 
-      <div>
-        <p className="mb-2.5 text-sm font-semibold text-ink-900">Time of day</p>
-        <div className="flex flex-wrap gap-2">
-          {TIME_IDS.map((time) => (
-            <Chip key={time} selected={filters.times.has(time)} onClick={() => toggleTime(time)}>
-              {TIME_OF_DAY_META[time].label}
-            </Chip>
+      {usingFallbackLocation && geo.status !== 'prompting' && (
+        <Button variant="bloom" size="sm" onClick={geo.request}>
+          <SunIcon className="size-4" />
+          Use my location
+        </Button>
+      )}
+
+      <label className="flex items-center gap-2">
+        <span className="text-xs font-medium text-ink-700">Within</span>
+        <select
+          value={radiusM}
+          onChange={(event) => setRadiusM(Number(event.target.value))}
+          className="h-9 rounded-full bg-shell px-3 pr-8 text-sm font-medium text-ink-900 ring-1 ring-ink-200 ring-inset shadow-low transition hover:ring-sun-300 focus:ring-2 focus:ring-bloom-400 focus:outline-none"
+        >
+          {RADIUS_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
           ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2.5 text-sm font-semibold text-ink-900">Category</p>
-        <div className="flex flex-wrap gap-2">
-          {CATEGORY_IDS.map((category) => (
-            <Chip
-              key={category}
-              selected={filters.categories.has(category)}
-              onClick={() => toggleCategory(category)}
-            >
-              <span aria-hidden>{CATEGORY_META[category].emoji}</span>
-              {CATEGORY_META[category].label}
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      <RangeField
-        label="Max distance"
-        value={filters.maxDistance}
-        displayValue={
-          filters.maxDistance >= MAX_DISTANCE_KM ? 'Anywhere' : formatDistance(filters.maxDistance)
-        }
-        min={1}
-        max={MAX_DISTANCE_KM}
-        step={1}
-        onChange={(maxDistance) => setFilters({ ...filters, maxDistance })}
-      />
-
-      <RangeField
-        label="Minimum rating"
-        value={filters.minRating}
-        displayValue={filters.minRating === 0 ? 'Any' : `${filters.minRating.toFixed(1)}+`}
-        min={0}
-        max={4.9}
-        step={0.1}
-        onChange={(minRating) => setFilters({ ...filters, minRating })}
-      />
-
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-petal bg-sand/70 p-3.5">
-        <span className="text-sm font-medium text-ink-900">Outdoors only</span>
-        <span className="relative inline-flex">
-          <input
-            type="checkbox"
-            checked={filters.outdoorOnly}
-            onChange={(event) => setFilters({ ...filters, outdoorOnly: event.target.checked })}
-            className="peer size-0 opacity-0"
-          />
-          <span
-            className={cx(
-              'block h-6 w-11 rounded-full transition-colors duration-200',
-              'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-bloom-500',
-              filters.outdoorOnly ? 'bg-lagoon-500' : 'bg-ink-300',
-            )}
-          />
-          <span
-            className={cx(
-              'pointer-events-none absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-low transition-transform duration-200',
-              filters.outdoorOnly && 'translate-x-5',
-            )}
-          />
-        </span>
+        </select>
       </label>
-
-      <p className="border-t border-ink-100 pt-4 text-sm text-ink-700">
-        <span className="font-semibold text-ink-900">{resultCount}</span>{' '}
-        {pluralize(resultCount, 'result')}
-      </p>
     </div>
   )
 }
@@ -238,103 +82,93 @@ function FilterPanel({
 /* -------------------------------------------------------------------------- */
 
 export function Explore({ state }: { state: AppState }) {
-  const { saved, scheduledActivityIds, toggleSaved, addToDay } = state
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
-  const [sort, setSort] = useState<SortKey>('recommended')
-  const [panelOpen, setPanelOpen] = useState(false)
+  const {
+    places,
+    placesStatus,
+    placesError,
+    servedFromCache,
+    reloadNearby,
+    savedIds,
+    scheduledPlaceIds,
+    toggleSaved,
+    addToDay,
+    locationLabel,
+  } = state
 
-  const activeCount = countActive(filters)
+  const [query, setQuery] = useState('')
+  const [categories, setCategories] = useState<Set<Category>>(new Set())
+  const [freeOnly, setFreeOnly] = useState(false)
+  const [sort, setSort] = useState<SortKey>('distance')
+
+  const activeCount = (query.trim() ? 1 : 0) + categories.size + (freeOnly ? 1 : 0)
 
   const results = useMemo(() => {
-    const query = filters.query.trim().toLowerCase()
+    const needle = query.trim().toLowerCase()
 
-    const filtered = ACTIVITIES.filter((activity) => {
-      if (activity.priceTier > filters.maxPriceTier) return false
-      if (activity.distanceKm > filters.maxDistance) return false
-      if (activity.rating < filters.minRating) return false
-      if (filters.outdoorOnly && !activity.outdoor) return false
-      if (filters.categories.size > 0 && !filters.categories.has(activity.category)) return false
-      if (
-        filters.times.size > 0 &&
-        !activity.timeOfDay.some((time) => filters.times.has(time))
-      ) {
-        return false
-      }
-      if (query) {
-        const haystack = [
-          activity.title,
-          activity.place,
-          activity.neighborhood,
-          activity.blurb,
-          ...activity.tags,
-        ]
+    const filtered = places.filter((place) => {
+      if (categories.size > 0 && !categories.has(place.category)) return false
+      // OSM records `fee` only occasionally, so this means "known to be free".
+      if (freeOnly && place.fee !== false) return false
+      if (needle) {
+        const haystack = [place.name, place.neighborhood, place.cuisine, place.category]
+          .filter(Boolean)
           .join(' ')
           .toLowerCase()
-        if (!haystack.includes(query)) return false
+        if (!haystack.includes(needle)) return false
       }
       return true
     })
 
     const sorted = [...filtered]
-    switch (sort) {
-      case 'price-asc':
-        sorted.sort((a, b) => a.price - b.price)
-        break
-      case 'price-desc':
-        sorted.sort((a, b) => b.price - a.price)
-        break
-      case 'rating':
-        sorted.sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount)
-        break
-      case 'duration':
-        sorted.sort((a, b) => a.durationMin - b.durationMin)
-        break
-      case 'distance':
-        sorted.sort((a, b) => a.distanceKm - b.distanceKm)
-        break
-      default:
-        // Recommended: rating weighted by how many people rated it
-        sorted.sort(
-          (a, b) => b.rating * Math.log10(b.reviewCount + 10) - a.rating * Math.log10(a.reviewCount + 10),
-        )
-    }
-    return sorted
-  }, [filters, sort])
+    if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name))
+    else if (sort === 'duration') sorted.sort((a, b) => a.durationMin - b.durationMin)
+    else sorted.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
 
-  const cheapest = useMemo(
-    () => results.reduce((min, activity) => Math.min(min, activity.price), Infinity),
-    [results],
-  )
+    return sorted
+  }, [places, query, categories, freeOnly, sort])
+
+  const availableCategories = useMemo(() => {
+    const counts = new Map<Category, number>()
+    for (const place of places) counts.set(place.category, (counts.get(place.category) ?? 0) + 1)
+    return counts
+  }, [places])
+
+  const toggleCategory = (category: Category) => {
+    setCategories((current) => {
+      const next = new Set(current)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
+
+  const reset = () => {
+    setQuery('')
+    setCategories(new Set())
+    setFreeOnly(false)
+  }
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       <SectionHeader
         eyebrow="Things to do"
-        title="What are we doing today?"
-        description="Twenty-four ideas within an hour of the coast. Filter by what you feel like spending, how far you will go, and when you want to be out."
+        title={locationLabel ? `What's on near ${locationLabel}?` : 'What are we doing today?'}
+        description="Real places from OpenStreetMap, sorted by how far they are from you. Visit lengths are estimates by category — OpenStreetMap records opening hours, not how long you'll stay."
       />
+
+      <LocationBar state={state} />
 
       {/* Search + sort */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Own row on narrow screens; shares the row with Sort from sm up */}
         <div className="relative w-full sm:w-auto sm:min-w-56 sm:flex-1">
           <input
             type="search"
-            value={filters.query}
-            onChange={(event) => setFilters({ ...filters, query: event.target.value })}
-            placeholder="Search tacos, flowers, sauna…"
-            aria-label="Search things to do"
-            className="h-11 w-full rounded-full bg-shell pr-4 pl-11 text-sm text-ink-900 ring-1 ring-ink-200 ring-inset shadow-low transition placeholder:text-ink-400 hover:ring-sun-300 focus:ring-2 focus:ring-bloom-400 focus:outline-none"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by name, area or cuisine…"
+            aria-label="Search nearby places"
+            className="h-11 w-full rounded-full bg-shell px-5 text-sm text-ink-900 ring-1 ring-ink-200 ring-inset shadow-low transition placeholder:text-ink-400 hover:ring-sun-300 focus:ring-2 focus:ring-bloom-400 focus:outline-none"
           />
-          <span
-            className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-ink-400"
-            aria-hidden
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className="size-4">
-              <circle cx="11" cy="11" r="6.5" />
-              <path d="M16 16l4.5 4.5" strokeLinecap="round" />
-            </svg>
-          </span>
         </div>
 
         <label className="flex items-center gap-2">
@@ -352,83 +186,115 @@ export function Explore({ state }: { state: AppState }) {
           </select>
         </label>
 
-        <Button
-          variant="secondary"
-          className="lg:hidden"
-          onClick={() => setPanelOpen((open) => !open)}
-          aria-expanded={panelOpen}
-        >
-          <SlidersIcon className="size-4" />
-          Filters
-          {activeCount > 0 && (
-            <span className="ml-1 grid size-5 place-items-center rounded-full bg-bloom-500 text-[0.6875rem] font-semibold text-white">
-              {activeCount}
-            </span>
-          )}
-        </Button>
-
         {activeCount > 0 && (
-          <Button variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>
+          <Button variant="ghost" onClick={reset}>
             <XIcon className="size-4" />
             Reset
           </Button>
         )}
       </div>
 
-      <div className="flex gap-8">
-        {/* Sidebar filters on large screens */}
-        <aside className="hidden w-72 shrink-0 lg:block">
-          <div className="sticky top-24 rounded-shell bg-shell p-5 ring-1 ring-ink-200/70 ring-inset shadow-low">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-ink-900">Filters</h3>
-              {activeCount > 0 && <Badge tone="bloom">{activeCount} active</Badge>}
-            </div>
-            <FilterPanel filters={filters} setFilters={setFilters} resultCount={results.length} />
-          </div>
-        </aside>
-
-        <div className="min-w-0 flex-1 space-y-5">
-          {/* Collapsible filters on small screens */}
-          {panelOpen && (
-            <div className="rounded-shell bg-shell p-5 ring-1 ring-ink-200/70 ring-inset shadow-mid lg:hidden">
-              <FilterPanel filters={filters} setFilters={setFilters} resultCount={results.length} />
-            </div>
-          )}
-
-          {results.length > 0 && (
-            <p className="text-sm text-ink-700">
-              <span className="font-semibold text-ink-900">{results.length}</span>{' '}
-              {pluralize(results.length, 'idea')}
-              {cheapest !== Infinity && (
-                <> · from {cheapest === 0 ? 'free' : formatPrice(cheapest)}</>
-              )}
-            </p>
-          )}
-
-          {results.length === 0 ? (
-            <EmptyState
-              emoji="🪺"
-              title="Nothing matches that combination"
-              description="The filters have squeezed everything out. Loosen the price cap or widen the distance and there will be plenty again."
-              action={<Button onClick={() => setFilters(EMPTY_FILTERS)}>Reset filters</Button>}
-            />
-          ) : (
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {results.map((activity, index) => (
-                <ActivityCard
-                  key={activity.id}
-                  activity={activity}
-                  index={index}
-                  saved={saved.has(activity.id)}
-                  scheduled={scheduledActivityIds.has(activity.id)}
-                  onToggleSaved={() => toggleSaved(activity.id)}
-                  onAdd={() => addToDay(activity)}
-                />
-              ))}
-            </div>
-          )}
+      {/* Category chips, showing only categories actually present nearby */}
+      {places.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {CATEGORY_IDS.filter((category) => availableCategories.has(category)).map((category) => (
+            <Chip
+              key={category}
+              selected={categories.has(category)}
+              onClick={() => toggleCategory(category)}
+            >
+              <span aria-hidden>{CATEGORY_META[category].emoji}</span>
+              {CATEGORY_META[category].label}
+              <span className="text-ink-400">{availableCategories.get(category)}</span>
+            </Chip>
+          ))}
+          <span className="mx-1 hidden h-6 w-px bg-ink-200 sm:block" aria-hidden />
+          <Chip selected={freeOnly} onClick={() => setFreeOnly((value) => !value)}>
+            Known free
+          </Chip>
         </div>
-      </div>
+      )}
+
+      {/* Status line */}
+      {placesStatus === 'ready' && places.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+          <span>
+            <span className="font-semibold text-ink-900">{results.length}</span>{' '}
+            {pluralize(results.length, 'place')}
+            {results.length !== places.length && ` of ${places.length}`}
+          </span>
+          {servedFromCache ? (
+            <Badge tone="lagoon">from cache</Badge>
+          ) : (
+            <Badge tone="sun">live from OpenStreetMap</Badge>
+          )}
+        </p>
+      )}
+
+      {/* Loading */}
+      {placesStatus === 'loading' && (
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              key={index}
+              className="h-80 animate-pulse rounded-shell bg-sand/70 ring-1 ring-ink-200/60 ring-inset"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Upstream failure — distinct from "nothing matched" */}
+      {placesStatus === 'error' && (
+        <EmptyState
+          emoji="🛰️"
+          title="Couldn't reach OpenStreetMap"
+          description={
+            placesError ??
+            'The free public OpenStreetMap service is busy. It usually clears in a few seconds.'
+          }
+          action={<Button onClick={() => void reloadNearby()}>Try again</Button>}
+        />
+      )}
+
+      {placesStatus === 'ready' && places.length === 0 && (
+        <EmptyState
+          emoji="🏜️"
+          title="Nothing mapped around here"
+          description="OpenStreetMap has no matching places within this radius. Widen the search and there may be more."
+          action={<Button onClick={() => state.setRadiusM(10_000)}>Search within 10 km</Button>}
+        />
+      )}
+
+      {placesStatus === 'ready' && places.length > 0 && results.length === 0 && (
+        <EmptyState
+          emoji="🪺"
+          title="Nothing matches that combination"
+          description="Your filters have squeezed everything out. Clear them and there will be plenty again."
+          action={<Button onClick={reset}>Reset filters</Button>}
+        />
+      )}
+
+      {/*
+       * Hidden while loading. Keeping the previous location's cards on screen
+       * during a refetch showed "What's on near Manhattan?" above a grid of
+       * Santa Monica places — the state is kept, just not displayed, so a failed
+       * refetch can still fall back to it.
+       */}
+      {placesStatus !== 'loading' && results.length > 0 && (
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {results.map((place, index) => (
+            <PlaceCard
+              key={place.id}
+              place={place}
+              index={index}
+              saved={savedIds.has(place.id)}
+              scheduled={scheduledPlaceIds.has(place.id)}
+              onToggleSaved={() => void toggleSaved(place.id)}
+              onAdd={() => void addToDay(place)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

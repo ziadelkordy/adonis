@@ -1,24 +1,45 @@
 import { useMemo } from 'react'
-import { ACTIVITIES, DESTINATIONS } from '@/lib/data'
+import { DESTINATIONS } from '@/lib/data'
 import { pluralize } from '@/lib/format'
 import type { AppState } from '@/lib/useAppState'
-import { ActivityCard } from '@/components/ActivityCard'
+import { AuthPanel } from '@/components/AuthPanel'
 import { DestinationCard } from '@/components/DestinationCard'
+import { PlaceCard } from '@/components/PlaceCard'
 import { Button, EmptyState, SectionHeader } from '@/components/ui'
 
 export function Saved({ state }: { state: AppState }) {
-  const { saved, scheduledActivityIds, toggleSaved, addToDay, setView } = state
+  const {
+    user,
+    authStatus,
+    savedIds,
+    savedPlaces,
+    scheduledPlaceIds,
+    toggleSaved,
+    addToDay,
+    setView,
+  } = state
 
-  const savedActivities = useMemo(
-    () => ACTIVITIES.filter((activity) => saved.has(activity.id)),
-    [saved],
-  )
   const savedDestinations = useMemo(
-    () => DESTINATIONS.filter((destination) => saved.has(destination.id)),
-    [saved],
+    () => DESTINATIONS.filter((destination) => savedIds.has(destination.id)),
+    [savedIds],
   )
 
-  const total = savedActivities.length + savedDestinations.length
+  // savedPlaces comes from the server and already contains only saved places.
+  const total = savedPlaces.length + savedDestinations.length
+
+  if (authStatus === 'loading') {
+    return <div className="h-96 animate-pulse rounded-dune bg-sand/60" />
+  }
+
+  if (!user) {
+    return (
+      <AuthPanel
+        state={state}
+        heading="Sign in to see your saved places"
+        description="Hearts are stored against your account, so they're waiting for you on any browser you sign in from."
+      />
+    )
+  }
 
   return (
     <div className="space-y-8">
@@ -28,7 +49,7 @@ export function Saved({ state }: { state: AppState }) {
         description={
           total === 0
             ? 'Nothing saved yet.'
-            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedActivities.length} nearby, ${savedDestinations.length} far away.`
+            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedPlaces.length} nearby, ${savedDestinations.length} far away.`
         }
       />
 
@@ -36,10 +57,10 @@ export function Saved({ state }: { state: AppState }) {
         <EmptyState
           emoji="💛"
           title="No favourites yet"
-          description="Tap the heart on anything in Explore or Escapes and it lands here, so you can come back to it when you actually have a free Saturday."
+          description="Tap the heart on anything in Explore or Escapes and it lands here, ready for when you actually have a free Saturday."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button onClick={() => setView('explore')}>Browse things to do</Button>
+              <Button onClick={() => setView('explore')}>Browse what's nearby</Button>
               <Button variant="secondary" onClick={() => setView('escapes')}>
                 Browse escapes
               </Button>
@@ -48,24 +69,24 @@ export function Saved({ state }: { state: AppState }) {
         />
       )}
 
-      {savedActivities.length > 0 && (
+      {savedPlaces.length > 0 && (
         <section className="space-y-4">
           <h3 className="text-lg font-semibold text-ink-900">
-            Things to do{' '}
+            Places{' '}
             <span className="font-sans text-sm font-normal text-ink-500">
-              ({savedActivities.length})
+              ({savedPlaces.length})
             </span>
           </h3>
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {savedActivities.map((activity, index) => (
-              <ActivityCard
-                key={activity.id}
-                activity={activity}
+            {savedPlaces.map((place, index) => (
+              <PlaceCard
+                key={place.id}
+                place={place}
                 index={index}
                 saved
-                scheduled={scheduledActivityIds.has(activity.id)}
-                onToggleSaved={() => toggleSaved(activity.id)}
-                onAdd={() => addToDay(activity)}
+                scheduled={scheduledPlaceIds.has(place.id)}
+                onToggleSaved={() => void toggleSaved(place.id)}
+                onAdd={() => void addToDay(place)}
               />
             ))}
           </div>
@@ -87,7 +108,7 @@ export function Saved({ state }: { state: AppState }) {
                 destination={destination}
                 index={index}
                 saved
-                onToggleSaved={() => toggleSaved(destination.id)}
+                onToggleSaved={() => void toggleSaved(destination.id)}
               />
             ))}
           </div>
