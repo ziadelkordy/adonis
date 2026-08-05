@@ -36,6 +36,17 @@ const EVENT_RADIUS_OPTIONS = [
   { value: 100_000, label: '100 km' },
 ]
 
+/*
+ * 50km, not the smallest option.
+ *
+ * Arenas and stadiums serve a whole metro from one or two sites, so from a
+ * suburb the nearest fixture is routinely further out than anywhere you would
+ * go for coffee. From Milpitas, a 25km search returns nothing at all while 50km
+ * returns fifteen fixtures — an empty tab that looks broken, purely because of
+ * the default. Events are worth travelling for; the radius should say so.
+ */
+const DEFAULT_EVENT_RADIUS_M = 50_000
+
 /**
  * What to browse events by. Ticketmaster splits classification into a broad
  * `segment` (Music / Sports / Arts & Theatre) and a narrower `genre` (Football,
@@ -201,7 +212,7 @@ function EventsTab({ state }: { state: AppState }) {
   const [venuesPending, setVenuesPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
-  const [radiusM, setRadiusM] = useState(EVENT_RADIUS_OPTIONS[0].value)
+  const [radiusM, setRadiusM] = useState(DEFAULT_EVENT_RADIUS_M)
   const [active, setActive] = useState<Set<string>>(new Set())
 
   useEffect(() => {

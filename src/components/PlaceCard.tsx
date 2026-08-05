@@ -2,19 +2,9 @@ import { motion } from 'motion/react'
 import type { Place } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
 import { formatDistance, formatDuration } from '@/lib/format'
-import { sceneVariantFor } from '@/lib/scene'
-import { Scene } from './Scene'
+import { PhotoCredit, PlaceImage } from './PlaceImage'
 import { CheckIcon, ClockIcon, PinIcon, PlusIcon } from './icons'
 import { Badge, Button, SaveButton } from './ui'
-
-/** Turns "way/12345" into a stable small integer for the generated artwork. */
-function seedFor(id: string): number {
-  let hash = 0
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash * 31 + id.charCodeAt(i)) % 100_000
-  }
-  return hash
-}
 
 interface PlaceCardProps {
   place: Place
@@ -46,9 +36,12 @@ export function PlaceCard({
       className="group flex flex-col overflow-hidden rounded-shell bg-shell ring-1 ring-ink-200/70 ring-inset shadow-low transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-high"
     >
       <div className="relative aspect-16/10 overflow-hidden">
-        <Scene
-          seed={seedFor(place.id)}
-          variant={sceneVariantFor(category.hue)}
+        <PlaceImage
+          id={place.id}
+          name={place.name}
+          hue={category.hue}
+          photo={place.photo ?? null}
+          priority={index < 3}
           className="absolute inset-0 size-full transition-transform duration-500 ease-out group-hover:scale-105"
         />
 
@@ -72,6 +65,12 @@ export function PlaceCard({
           </Badge>
           <SaveButton saved={saved} onToggle={onToggleSaved} label={place.name} />
         </div>
+
+        {place.photo && (
+          <div className="pointer-events-none absolute inset-x-3 bottom-11 z-10 flex [&>*]:pointer-events-auto">
+            <PhotoCredit photo={place.photo} className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />
+          </div>
+        )}
 
         <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex items-end justify-between gap-2">
           <span className="glass rounded-full px-3 py-1.5 text-sm font-semibold text-ink-900 ring-1 ring-white/70 ring-inset">

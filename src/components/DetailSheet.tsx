@@ -3,17 +3,11 @@ import { motion } from 'motion/react'
 import type { Place } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
 import { formatDistance, formatDuration } from '@/lib/format'
-import { sceneVariantFor } from '@/lib/scene'
 import { MapView } from './MapView'
-import { Scene } from './Scene'
+import { PhotoCredit, PlaceImage } from './PlaceImage'
 import { CheckIcon, ClockIcon, PinIcon, PlusIcon, XIcon } from './icons'
 import { Badge, Button, SaveButton } from './ui'
 
-function seedFor(id: string): number {
-  let hash = 0
-  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 100_000
-  return hash
-}
 
 /** Opens the location in the viewer's own maps app rather than assuming one. */
 function directionsHref(place: Place): string {
@@ -85,11 +79,22 @@ export function DetailSheet({
       >
         {/* Artwork header */}
         <div className="relative aspect-16/9 shrink-0 overflow-hidden">
-          <Scene
-            seed={seedFor(place.id)}
-            variant={sceneVariantFor(category.hue)}
+          <PlaceImage
+            id={place.id}
+            name={place.name}
+            hue={category.hue}
+            photo={place.photo ?? null}
+            priority
             className="absolute inset-0 size-full"
           />
+          {place.photo && (
+            <div className="absolute inset-x-4 bottom-3 flex">
+              <PhotoCredit
+                photo={place.photo}
+                className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]"
+              />
+            </div>
+          )}
           <div className="absolute inset-x-4 top-4 flex items-start justify-between gap-2">
             <Badge tone="glass">
               <span aria-hidden>{category.emoji}</span>

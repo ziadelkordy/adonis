@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:all": "vitest run && pnpm --filter @adonis/server test",
-    "warm": "pnpm --filter @adonis/server warm"
+    "warm": "pnpm --filter @adonis/server warm",
+    "warm:photos": "pnpm --filter @adonis/server warm:photos"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

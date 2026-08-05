@@ -9,6 +9,17 @@ export interface ApiUser {
   displayName: string
 }
 
+/** A verified photograph of a place. Null on most places — see PlaceImage. */
+export interface Photo {
+  url: string
+  width: number
+  height: number
+  /** Ready to display: "Jane Doe / CC BY-SA 4.0", or null when Commons has none. */
+  credit: string | null
+  articleTitle: string
+  articleUrl: string
+}
+
 export interface Place {
   id: string
   name: string
@@ -24,6 +35,7 @@ export interface Place {
   cuisine: string | null
   durationMin: number
   distanceKm?: number
+  photo?: Photo | null
 }
 
 export interface DayItem {

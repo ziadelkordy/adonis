@@ -2,16 +2,10 @@ import { useState } from 'react'
 import { motion } from 'motion/react'
 import type { EventItem } from '@/lib/api'
 import { formatDistance } from '@/lib/format'
+import { seedFor } from '@/lib/scene'
 import { Scene } from './Scene'
 import { CheckIcon, ClockIcon, PinIcon, PlusIcon } from './icons'
 import { Badge } from './ui'
-
-/** Stable small integer from the event id, for the fallback artwork. */
-function seedFor(id: string): number {
-  let hash = 0
-  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 100_000
-  return hash
-}
 
 function formatDateParts(date: string): { weekday: string; day: string; month: string } | null {
   // date is "YYYY-MM-DD"; parsed as UTC noon to dodge timezone-shift off-by-ones.

@@ -18,6 +18,7 @@ import {
   verifyPassword,
 } from './auth.ts'
 import { assertDatabaseReachable, sql } from './db.ts'
+import { withPhotos } from './photos.ts'
 import { checkRateLimit } from './rateLimit.ts'
 import { loadEvents, parseEventSnapshot, upsertEvent } from './schedule.ts'
 import { fetchEventsBundle, isEventsConfigured } from './events.ts'
@@ -425,7 +426,7 @@ app.get('/api/places/nearby', async (c) => {
 
   try {
     const { places, cached } = await fetchNearby(lat, lon, radiusM, categories)
-    return c.json({ places, cached, radiusM, count: places.length })
+    return c.json({ places: await withPhotos(places), cached, radiusM, count: places.length })
   } catch (error) {
     if (error instanceof UpstreamError) {
       // 503, not 500: OpenStreetMap is unavailable, our service is fine.
@@ -455,7 +456,7 @@ app.get('/api/places/escapes', async (c) => {
 
   try {
     const { places, cached } = await fetchEscapes(lat, lon, radiusM)
-    return c.json({ places, cached, count: places.length, radiusM })
+    return c.json({ places: await withPhotos(places), cached, count: places.length, radiusM })
   } catch (error) {
     if (error instanceof UpstreamError) {
       return c.json({ error: `OpenStreetMap is unavailable right now (${error.message}).` }, 503)
@@ -472,10 +473,13 @@ app.get('/api/events/nearby', async (c) => {
     return c.json({ error: 'lat and lon are required and must be valid coordinates.' }, 400)
   }
 
-  const requested = Number(c.req.query('radius') ?? 25_000)
+  // 50km by default: metro venues sit far from the suburbs their audience
+  // travels from, and a tighter default returns an empty list that reads as a
+  // broken feature rather than a small search.
+  const requested = Number(c.req.query('radius') ?? 50_000)
   const radiusM = Number.isFinite(requested)
     ? Math.min(Math.max(requested, 1000), 200_000)
-    : 25_000
+    : 50_000
 
   try {
     const bundle = await fetchEventsBundle(lat, lon, radiusM)
