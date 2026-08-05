@@ -208,6 +208,11 @@ export const api = {
   events: (lat: number, lon: number, radiusM: number) =>
     request<EventsResponse>(`/events/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`),
 
+  searchLocations: (query: string) =>
+    request<{ matches: { name: string; label: string; lat: number; lon: number }[] }>(
+      `/geo/search?q=${encodeURIComponent(query)}`,
+    ),
+
   reverseGeocode: (lat: number, lon: number) =>
     request<{ label: string; city: string | null; country: string | null }>(
       `/geo/reverse?lat=${lat}&lon=${lon}`,

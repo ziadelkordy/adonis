@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Photo } from '@/lib/api'
+import type { Category } from '@/lib/types'
 import { sceneVariantFor, seedFor } from '@/lib/scene'
 import { Scene } from './Scene'
 
@@ -7,6 +8,8 @@ interface PlaceImageProps {
   id: string
   name: string
   hue: string
+  /** Chooses the silhouette shown when there is no photograph. */
+  category: Category
   photo: Photo | null
   className?: string
   /** Larger images load eagerly; cards below the fold should stay lazy. */
@@ -31,6 +34,7 @@ export function PlaceImage({
   id,
   name,
   hue,
+  category,
   photo,
   className = '',
   priority = false,
@@ -39,7 +43,14 @@ export function PlaceImage({
   const [loaded, setLoaded] = useState(false)
 
   if (!photo || failed) {
-    return <Scene seed={seedFor(id)} variant={sceneVariantFor(hue)} className={className} />
+    return (
+      <Scene
+        seed={seedFor(id)}
+        variant={sceneVariantFor(hue)}
+        motif={category}
+        className={className}
+      />
+    )
   }
 
   return (
@@ -50,7 +61,12 @@ export function PlaceImage({
        * thumbnails are served from Europe and can take a moment.
        */}
       {!loaded && (
-        <Scene seed={seedFor(id)} variant={sceneVariantFor(hue)} className={className} />
+        <Scene
+          seed={seedFor(id)}
+          variant={sceneVariantFor(hue)}
+          motif={category}
+          className={className}
+        />
       )}
       <img
         src={photo.url}

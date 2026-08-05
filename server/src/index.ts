@@ -31,6 +31,7 @@ import {
   fetchNearby,
   loadPlaces,
   reverseGeocode,
+  searchLocations,
 } from './places.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -473,13 +474,14 @@ app.get('/api/events/nearby', async (c) => {
     return c.json({ error: 'lat and lon are required and must be valid coordinates.' }, 400)
   }
 
-  // 50km by default: metro venues sit far from the suburbs their audience
-  // travels from, and a tighter default returns an empty list that reads as a
-  // broken feature rather than a small search.
-  const requested = Number(c.req.query('radius') ?? 50_000)
+  // 75km by default: metro venues sit far from the suburbs their audience
+  // travels from — measured from Milpitas, the nearest fixtures are Chase Center
+  // and Oracle Park at 57-58km — and a tighter default returns an empty list
+  // that reads as a broken feature rather than a small search.
+  const requested = Number(c.req.query('radius') ?? 75_000)
   const radiusM = Number.isFinite(requested)
     ? Math.min(Math.max(requested, 1000), 200_000)
-    : 50_000
+    : 75_000
 
   try {
     const bundle = await fetchEventsBundle(lat, lon, radiusM)
@@ -494,6 +496,18 @@ app.get('/api/events/nearby', async (c) => {
   } catch (error) {
     console.error('events failed:', error)
     return c.json({ error: 'Could not load events.' }, 500)
+  }
+})
+
+app.get('/api/geo/search', async (c) => {
+  const query = c.req.query('q') ?? ''
+  if (query.trim().length < 2) return c.json({ matches: [] })
+
+  try {
+    return c.json({ matches: await searchLocations(query) })
+  } catch (error) {
+    console.error('location search failed:', error)
+    return c.json({ error: 'Could not search for that place.' }, 502)
   }
 })
 

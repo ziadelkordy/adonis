@@ -10,6 +10,7 @@ import {
   toSnapshot,
 } from './api'
 import { type Router, describeDateInline, todayISO } from './router'
+import { type ChosenLocation, useChosenLocation } from './useChosenLocation'
 import { FALLBACK_COORDS, useGeolocation } from './useGeolocation'
 
 export const DAY_START_MIN = 6 * 60
@@ -61,6 +62,7 @@ export function useAppState(router: Router) {
 
   /* Location -------------------------------------------------------------- */
   const geo = useGeolocation()
+  const { chosen, choose, clear: clearChosen } = useChosenLocation()
   const [locationLabel, setLocationLabel] = useState<string | null>(null)
   const [radiusM, setRadiusM] = useState(2000)
 
@@ -87,9 +89,22 @@ export function useAppState(router: Router) {
     toastTimer.current = setTimeout(() => setToast(null), 3600)
   }, [])
 
-  /** Whether we're showing real device coordinates or the fallback city. */
-  const usingFallbackLocation = geo.coords === null
-  const coords = geo.coords ?? FALLBACK_COORDS
+  /*
+   * Precedence: a location set by hand, then the browser, then the fallback city.
+   *
+   * A hand-set location outranks the browser deliberately. Someone only opens
+   * that picker because the automatic answer was absent or wrong, so silently
+   * overriding their choice the moment a coarse fix arrives would undo the fix.
+   */
+  const coords = chosen ?? geo.coords ?? FALLBACK_COORDS
+
+  /*
+   * True only when neither the user nor the browser supplied a location, so the
+   * results being shown are for a city picked out of thin air. The UI has to say
+   * so — distances are measured from here, and presenting them as "0.1 km away"
+   * to someone hundreds of kilometres from that city is simply false.
+   */
+  const usingFallbackLocation = chosen === null && geo.coords === null
 
   /* ---------------------------------------------------------------------- */
   /* Session                                                                */
@@ -505,7 +520,10 @@ export function useAppState(router: Router) {
     geo,
     coords,
     usingFallbackLocation,
-    locationLabel,
+    locationLabel: chosen?.name ?? locationLabel,
+    chosenLocation: chosen,
+    chooseLocation: choose as (location: ChosenLocation) => void,
+    clearChosenLocation: clearChosen,
     radiusM,
     setRadiusM,
 

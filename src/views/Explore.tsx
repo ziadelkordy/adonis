@@ -7,6 +7,7 @@ import type { Category } from '@/lib/types'
 import { RADIUS_OPTIONS, type AppState, type LoadStatus } from '@/lib/useAppState'
 import { EventCard } from '@/components/EventCard'
 import { MapView, type MapMarker } from '@/components/MapView'
+import { LocationPicker } from '@/components/LocationPicker'
 import { PlaceCard } from '@/components/PlaceCard'
 import { PinIcon, SparkleIcon, SunIcon, XIcon } from '@/components/icons'
 import { Badge, Button, Chip, EmptyState, SectionHeader } from '@/components/ui'
@@ -32,20 +33,25 @@ const FUN_SET = new Set<Category>(FUN_CATEGORIES)
  */
 const EVENT_RADIUS_OPTIONS = [
   { value: 25_000, label: '25 km' },
-  { value: 50_000, label: '50 km' },
-  { value: 100_000, label: '100 km' },
+  { value: 75_000, label: '75 km' },
+  { value: 150_000, label: '150 km' },
 ]
 
+/** The widest option, offered when a search comes back empty. */
+const WIDEST_EVENT_RADIUS_M = EVENT_RADIUS_OPTIONS[EVENT_RADIUS_OPTIONS.length - 1].value
+
 /*
- * 50km, not the smallest option.
+ * Metro scale, not neighbourhood scale.
  *
- * Arenas and stadiums serve a whole metro from one or two sites, so from a
- * suburb the nearest fixture is routinely further out than anywhere you would
- * go for coffee. From Milpitas, a 25km search returns nothing at all while 50km
- * returns fifteen fixtures — an empty tab that looks broken, purely because of
- * the default. Events are worth travelling for; the radius should say so.
+ * Arenas and stadiums serve a whole region from one or two sites, so from a
+ * suburb the nearest fixture is routinely much further out than anywhere you
+ * would go for coffee. Measured from Milpitas: nothing at all inside 55km, then
+ * fifteen fixtures at 60km — Chase Center and Oracle Park, both 57-58km away in
+ * San Francisco. A tighter default returns an empty tab that reads as a broken
+ * feature rather than a small search, so the default clears the metro's own
+ * venues with room to spare.
  */
-const DEFAULT_EVENT_RADIUS_M = 50_000
+const DEFAULT_EVENT_RADIUS_M = 75_000
 
 /**
  * What to browse events by. Ticketmaster splits classification into a broad
@@ -105,7 +111,18 @@ function LocationBar({
   /** Events use their own fixed radius, so the picker would be misleading there. */
   showRadius?: boolean
 }) {
-  const { geo, locationLabel, usingFallbackLocation, radiusM, setRadiusM, coords } = state
+  const {
+    geo,
+    locationLabel,
+    usingFallbackLocation,
+    radiusM,
+    setRadiusM,
+    coords,
+    chosenLocation,
+    chooseLocation,
+    clearChosenLocation,
+  } = state
+  const [picking, setPicking] = useState(false)
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-shell bg-sunrise p-4 ring-1 ring-white/70 ring-inset shadow-low">
@@ -116,10 +133,15 @@ function LocationBar({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-ink-900">
           {locationLabel ?? 'Locating…'}
-          {geo.status === 'granted' && !usingFallbackLocation && (
-            <span className="ml-2 align-middle text-xs font-normal text-lagoon-600">
-              · your location
-            </span>
+          {chosenLocation ? (
+            <span className="ml-2 align-middle text-xs font-normal text-bloom-500">· set by you</span>
+          ) : (
+            geo.status === 'granted' &&
+            !usingFallbackLocation && (
+              <span className="ml-2 align-middle text-xs font-normal text-lagoon-600">
+                · your location
+              </span>
+            )
           )}
         </p>
         <p className="mt-0.5 text-xs text-ink-700">
@@ -134,11 +156,31 @@ function LocationBar({
                   : geo.status === 'error'
                     ? `${geo.message ?? 'Location unavailable'} — showing Santa Monica.`
                     : 'Showing Santa Monica until you share your location.'
-            : `${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)} · accurate to ~${Math.round(
-                coords.accuracyM,
-              )}m`}
+            : chosenLocation
+              ? chosenLocation.label
+              : `${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)} · accurate to ~${Math.round(
+                  geo.coords?.accuracyM ?? 0,
+                )}m`}
         </p>
       </div>
+
+      {picking && (
+        <LocationPicker
+          onChoose={chooseLocation}
+          onClose={() => setPicking(false)}
+          onClear={chosenLocation ? clearChosenLocation : undefined}
+        />
+      )}
+
+      {/*
+       * Always available, not only when the fallback is showing: the browser can
+       * be confidently wrong, and someone may want to plan a day in a city they
+       * are not in yet.
+       */}
+      <Button variant="secondary" size="sm" onClick={() => setPicking(true)}>
+        <PinIcon className="size-4" />
+        {chosenLocation || !usingFallbackLocation ? 'Change' : 'Set location'}
+      </Button>
 
       {usingFallbackLocation && geo.status !== 'prompting' && (
         <Button variant="bloom" size="sm" onClick={geo.retry}>
@@ -373,8 +415,10 @@ function EventsTab({ state }: { state: AppState }) {
           } right now. Try a wider radius, or check back later.`}
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              {radiusM < 100_000 && (
-                <Button onClick={() => setRadiusM(100_000)}>Search within 100 km</Button>
+              {radiusM < WIDEST_EVENT_RADIUS_M && (
+                <Button onClick={() => setRadiusM(WIDEST_EVENT_RADIUS_M)}>
+                  Search within {WIDEST_EVENT_RADIUS_M / 1000} km
+                </Button>
               )}
               <Button variant="secondary" onClick={() => setReload((value) => value + 1)}>
                 Check again

@@ -392,6 +392,55 @@ export async function geocodePlace(query: string): Promise<{ lat: number; lon: n
   return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null
 }
 
+export interface LocationMatch {
+  /** Full descriptive name, e.g. "Milpitas, Santa Clara County, California". */
+  label: string
+  /** Short leading part, for the header chip. */
+  name: string
+  lat: number
+  lon: number
+}
+
+/**
+ * Forward geocoding with several labelled candidates, for choosing a location by
+ * hand.
+ *
+ * The browser is not always willing or able to say where you are — permission
+ * can be blocked at the OS level, and a desktop with no GPS can be wrong by
+ * tens of kilometres. Without this the app silently falls back to a fixed city
+ * and presents its results as though they were nearby, which is worse than
+ * admitting it doesn't know.
+ */
+export async function searchLocations(query: string): Promise<LocationMatch[]> {
+  const trimmed = query.trim()
+  if (trimmed.length < 2) return []
+
+  await throttleNominatim()
+
+  const url = `${NOMINATIM_SEARCH_URL}?q=${encodeURIComponent(trimmed)}&format=json&limit=6&addressdetails=0`
+  const response = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!response.ok) return []
+
+  const body = (await response.json()) as Array<{
+    lat?: string
+    lon?: string
+    display_name?: string
+  }>
+
+  const matches: LocationMatch[] = []
+  for (const row of body) {
+    const lat = Number(row.lat)
+    const lon = Number(row.lon)
+    const label = row.display_name?.trim()
+    if (!label || !Number.isFinite(lat) || !Number.isFinite(lon)) continue
+    matches.push({ label, name: label.split(',')[0].trim(), lat, lon })
+  }
+  return matches
+}
+
 /* -------------------------------------------------------------------------- */
 /* Overpass (places)                                                           */
 /* -------------------------------------------------------------------------- */

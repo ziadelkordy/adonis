@@ -40,6 +40,7 @@ export function PlaceCard({
           id={place.id}
           name={place.name}
           hue={category.hue}
+          category={place.category}
           photo={place.photo ?? null}
           priority={index < 3}
           className="absolute inset-0 size-full transition-transform duration-500 ease-out group-hover:scale-105"

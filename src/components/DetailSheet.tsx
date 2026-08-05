@@ -83,6 +83,7 @@ export function DetailSheet({
             id={place.id}
             name={place.name}
             hue={category.hue}
+            category={place.category}
             photo={place.photo ?? null}
             priority
             className="absolute inset-0 size-full"

@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
+import type { Category } from '@/lib/types'
 import { seededRandom } from '@/lib/format'
 import type { SceneVariant } from '@/lib/scene'
+import { SceneMotif } from './SceneMotif'
 
 const PALETTES: Record<
   SceneVariant,
@@ -45,13 +47,20 @@ interface SceneProps {
   seed: number
   variant?: SceneVariant
   className?: string
+  /**
+   * Draws a silhouette of this kind of place on the horizon. Without it every
+   * scene is the same sunset, which tells the reader nothing about the place —
+   * and since most places will never have a real photo, this fallback is what
+   * they will usually see.
+   */
+  motif?: Category
 }
 
 /**
  * Procedural sunset artwork. Deterministic from `seed`, so a given activity always
  * gets the same picture — and there are no image requests to fail or slow us down.
  */
-export function Scene({ seed, variant = 'sun', className }: SceneProps) {
+export function Scene({ seed, variant = 'sun', className, motif }: SceneProps) {
   const palette = PALETTES[variant]
   const id = `scene-${variant}-${seed}`
 
@@ -154,6 +163,13 @@ export function Scene({ seed, variant = 'sun', className }: SceneProps) {
           <circle r={b.r * 0.26} fill="#FFC820" />
         </g>
       ))}
+
+      {/* The place itself, standing on the horizon */}
+      {motif && (
+        <g transform={`translate(${sunX > 200 ? 112 : 292} ${horizon + 1}) scale(1.15)`}>
+          <SceneMotif category={motif} color={palette.seaDeep} />
+        </g>
+      )}
 
       {/* Sea */}
       <rect
