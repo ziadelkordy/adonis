@@ -536,8 +536,13 @@ const RETRY_DELAYS_MS = [0, 1000, 2500, 5000]
  * radius — so they get their own, much larger budget. Using the short one for them
  * turned a slow-but-working query into a guaranteed failure.
  */
-const TOTAL_BUDGET_MS = 25_000
-const WIDE_AREA_BUDGET_MS = 120_000
+/*
+ * Overridable via OVERPASS_BUDGET_MS. The deployed app wants to fail fast because
+ * it can reach no endpoint at all; the warm script wants patience, because a
+ * genuinely slow query that succeeds is exactly what it is there to collect.
+ */
+const TOTAL_BUDGET_MS = Number(process.env.OVERPASS_BUDGET_MS ?? 25_000)
+const WIDE_AREA_BUDGET_MS = Math.max(TOTAL_BUDGET_MS, 120_000)
 
 async function queryOverpass(
   query: string,

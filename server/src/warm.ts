@@ -24,8 +24,25 @@ interface Area {
   lon: number
 }
 
-/** Somewhere to start; pass coordinates on the command line for anywhere else. */
+/**
+ * The areas this deployment actually serves. Pass coordinates on the command line
+ * for anywhere else — and add it here so the set is reproducible from scratch.
+ */
 const DEFAULT_AREAS: Area[] = [
+  // Bay Area — where the people using this live.
+  { name: 'Milpitas', lat: 37.4323, lon: -121.8996 },
+  { name: 'San Jose', lat: 37.3382, lon: -121.8863 },
+  { name: 'Santa Clara', lat: 37.3541, lon: -121.9552 },
+  { name: 'Sunnyvale', lat: 37.3688, lon: -122.0363 },
+  { name: 'Mountain View', lat: 37.3861, lon: -122.0839 },
+  { name: 'Palo Alto', lat: 37.4419, lon: -122.143 },
+  { name: 'Fremont', lat: 37.5485, lon: -121.9886 },
+  { name: 'San Francisco', lat: 37.7749, lon: -122.4194 },
+  { name: 'SF Mission', lat: 37.7599, lon: -122.4148 },
+  { name: 'Oakland', lat: 37.8044, lon: -122.2712 },
+  { name: 'Berkeley', lat: 37.8715, lon: -122.273 },
+
+  // Los Angeles — warmed earlier.
   { name: 'Santa Monica', lat: 34.0195, lon: -118.4912 },
   { name: 'Downtown LA', lat: 34.0522, lon: -118.2437 },
   { name: 'Venice Beach', lat: 33.985, lon: -118.4695 },

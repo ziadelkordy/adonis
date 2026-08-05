@@ -9,7 +9,7 @@
     "migrate": "node --env-file-if-exists=.env --experimental-strip-types src/migrate.ts",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "warm": "node --env-file-if-exists=.env --experimental-strip-types src/warm.ts"
+    "warm": "OVERPASS_BUDGET_MS=120000 node --env-file-if-exists=.env --experimental-strip-types src/warm.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
