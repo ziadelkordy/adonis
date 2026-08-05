@@ -1,9 +1,6 @@
-import { useMemo } from 'react'
-import { DESTINATIONS } from '@/lib/data'
 import { pluralize } from '@/lib/format'
 import type { AppState } from '@/lib/useAppState'
 import { AuthPanel } from '@/components/AuthPanel'
-import { DestinationCard } from '@/components/DestinationCard'
 import { PlaceCard } from '@/components/PlaceCard'
 import { Button, EmptyState, SectionHeader } from '@/components/ui'
 
@@ -11,7 +8,6 @@ export function Saved({ state }: { state: AppState }) {
   const {
     user,
     authStatus,
-    savedIds,
     savedPlaces,
     scheduledPlaceIds,
     toggleSaved,
@@ -21,13 +17,8 @@ export function Saved({ state }: { state: AppState }) {
     savedEvents,
   } = state
 
-  const savedDestinations = useMemo(
-    () => DESTINATIONS.filter((destination) => savedIds.has(destination.id)),
-    [savedIds],
-  )
-
   // savedPlaces comes from the server and already contains only saved places.
-  const total = savedPlaces.length + savedDestinations.length + savedEvents.length
+  const total = savedPlaces.length + savedEvents.length
 
   if (authStatus === 'loading') {
     return <div className="h-96 animate-pulse rounded-dune bg-sand/60" />
@@ -51,7 +42,7 @@ export function Saved({ state }: { state: AppState }) {
         description={
           total === 0
             ? 'Nothing saved yet.'
-            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedPlaces.length} nearby, ${savedEvents.length} ${pluralize(savedEvents.length, 'event')}, ${savedDestinations.length} far away.`
+            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedPlaces.length} ${pluralize(savedPlaces.length, 'place')} and ${savedEvents.length} ${pluralize(savedEvents.length, 'event')}.`
         }
       />
 
@@ -64,7 +55,7 @@ export function Saved({ state }: { state: AppState }) {
             <div className="flex flex-wrap justify-center gap-2">
               <Button onClick={() => setView('explore')}>Browse what's nearby</Button>
               <Button variant="secondary" onClick={() => setView('escapes')}>
-                Browse escapes
+                Browse day trips
               </Button>
             </div>
           }
@@ -129,27 +120,6 @@ export function Saved({ state }: { state: AppState }) {
         </section>
       )}
 
-      {savedDestinations.length > 0 && (
-        <section className="space-y-4">
-          <h3 className="text-lg font-semibold text-ink-900">
-            Escapes{' '}
-            <span className="font-sans text-sm font-normal text-ink-500">
-              ({savedDestinations.length})
-            </span>
-          </h3>
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {savedDestinations.map((destination, index) => (
-              <DestinationCard
-                key={destination.id}
-                destination={destination}
-                index={index}
-                saved
-                onToggleSaved={() => void toggleSaved(destination.id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   )
 }

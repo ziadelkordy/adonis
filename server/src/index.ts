@@ -1,4 +1,9 @@
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { dirname, extname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { type Context, Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import {
@@ -19,7 +24,9 @@ import { fetchEventsBundle, isEventsConfigured } from './events.ts'
 import {
   CATEGORIES,
   type Category,
+  ESCAPE_MAX_RADIUS_M,
   UpstreamError,
+  fetchEscapes,
   fetchNearby,
   loadPlaces,
   reverseGeocode,
@@ -413,6 +420,35 @@ app.get('/api/places/nearby', async (c) => {
   }
 })
 
+/*
+ * Trip-worthy places further out — beaches, nature reserves, viewpoints, theme
+ * parks. Slow on a cold cache (~30s at 40km) because the area is large, then
+ * cached for a week like any other place query.
+ */
+app.get('/api/places/escapes', async (c) => {
+  const lat = parseCoord(c.req.query('lat'), 90)
+  const lon = parseCoord(c.req.query('lon'), 180)
+  if (lat === null || lon === null) {
+    return c.json({ error: 'lat and lon are required and must be valid coordinates.' }, 400)
+  }
+
+  const requested = Number(c.req.query('radius') ?? ESCAPE_MAX_RADIUS_M)
+  const radiusM = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 5000), ESCAPE_MAX_RADIUS_M)
+    : ESCAPE_MAX_RADIUS_M
+
+  try {
+    const { places, cached } = await fetchEscapes(lat, lon, radiusM)
+    return c.json({ places, cached, count: places.length, radiusM })
+  } catch (error) {
+    if (error instanceof UpstreamError) {
+      return c.json({ error: `OpenStreetMap is unavailable right now (${error.message}).` }, 503)
+    }
+    console.error('escapes failed:', error)
+    return c.json({ error: 'Could not load escapes.' }, 500)
+  }
+})
+
 app.get('/api/events/nearby', async (c) => {
   const lat = parseCoord(c.req.query('lat'), 90)
   const lon = parseCoord(c.req.query('lon'), 180)
@@ -458,6 +494,54 @@ app.get('/api/geo/reverse', async (c) => {
 })
 
 /* -------------------------------------------------------------------------- */
+/* Static frontend (production)                                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * In development Vite serves the app and proxies /api here. In production this
+ * process serves both, so there's one origin, one deployable and one URL.
+ */
+const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist')
+const SERVE_STATIC = existsSync(DIST_DIR)
+
+if (SERVE_STATIC) {
+  /*
+   * serveStatic resolves `root` against process.cwd(), not this file — and the
+   * server may be launched from the repo root or from server/ depending on how
+   * it's started. A hard-coded './dist' silently missed in the container, and
+   * every asset fell through to the SPA handler, which returned index.html with a
+   * 200. The browser then got HTML where it expected JavaScript: a blank page,
+   * with no error status to point at it.
+   */
+  const staticRoot = relative(process.cwd(), DIST_DIR) || '.'
+  app.use('/assets/*', serveStatic({ root: staticRoot }))
+  app.use('/favicon.svg', serveStatic({ root: staticRoot }))
+
+  /*
+   * SPA fallback. Client-side routes like /explore/fun and /saved have no file
+   * behind them, so they get index.html and the router takes over — otherwise a
+   * shared deep link 404s.
+   */
+  app.get('*', async (c) => {
+    const path = c.req.path
+    if (path.startsWith('/api/')) return c.json({ error: 'Not found.' }, 404)
+
+    /*
+     * Anything with a file extension is a missing asset, not a route. Returning
+     * index.html for those is what hid the bug above, so they 404 honestly.
+     */
+    if (extname(path)) return c.text('Not found', 404)
+
+    try {
+      const html = await readFile(join(DIST_DIR, 'index.html'), 'utf8')
+      return c.html(html)
+    } catch {
+      return c.text('Frontend build not found. Run pnpm build.', 500)
+    }
+  })
+}
+
+/* -------------------------------------------------------------------------- */
 /* Boot                                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -474,7 +558,11 @@ try {
 await pruneExpiredSessions()
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`Sundial API listening on http://localhost:${info.port}`)
+  console.log(
+    SERVE_STATIC
+      ? `Sundial listening on http://localhost:${info.port} (app + API)`
+      : `Sundial API listening on http://localhost:${info.port}`,
+  )
   console.log(
     isEventsConfigured()
       ? 'Events: sports from ESPN + ticketed listings from Ticketmaster.'

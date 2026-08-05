@@ -45,19 +45,27 @@ export function PlaceCard({
       transition={{ duration: 0.34, delay: Math.min(index * 0.03, 0.24), ease: [0.22, 1, 0.36, 1] }}
       className="group flex flex-col overflow-hidden rounded-shell bg-shell ring-1 ring-ink-200/70 ring-inset shadow-low transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-high"
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`See details for ${place.name}`}
-        className="relative block aspect-16/10 w-full cursor-pointer overflow-hidden text-left"
-      >
+      <div className="relative aspect-16/10 overflow-hidden">
         <Scene
           seed={seedFor(place.id)}
           variant={sceneVariantFor(category.hue)}
           className="absolute inset-0 size-full transition-transform duration-500 ease-out group-hover:scale-105"
         />
 
-        <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
+        {/*
+         * The click target is a sibling covering the artwork, not a wrapper around
+         * it. Wrapping would put the save button inside this one, and a button
+         * nested in a button is invalid HTML that browsers and screen readers
+         * handle unpredictably.
+         */}
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`See details for ${place.name}`}
+          className="absolute inset-0 z-0 cursor-pointer"
+        />
+
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start justify-between gap-2 [&>*]:pointer-events-auto">
           <Badge tone="glass">
             <span aria-hidden>{category.emoji}</span>
             {category.label}
@@ -65,7 +73,7 @@ export function PlaceCard({
           <SaveButton saved={saved} onToggle={onToggleSaved} label={place.name} />
         </div>
 
-        <div className="absolute inset-x-3 bottom-3 flex items-end justify-between gap-2">
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex items-end justify-between gap-2">
           <span className="glass rounded-full px-3 py-1.5 text-sm font-semibold text-ink-900 ring-1 ring-white/70 ring-inset">
             {place.distanceKm !== undefined ? formatDistance(place.distanceKm) : 'nearby'}
           </span>
@@ -76,7 +84,7 @@ export function PlaceCard({
             </Badge>
           )}
         </div>
-      </button>
+      </div>
 
       <div className="flex flex-1 flex-col gap-2.5 p-4 sm:p-5">
         <h3 className="text-[1.0625rem] leading-snug font-semibold text-ink-900">

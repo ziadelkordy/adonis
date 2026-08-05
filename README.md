@@ -3,9 +3,11 @@
 Plan your day, find things to do, and dream up your next escape. Sunny, beachy,
 flowery — yellow leads, pink accents, sea green keeps it from going saccharine.
 
-Nearby places are **real data** from OpenStreetMap, located from your browser.
-Your account, your day and your saved places live in a **real Postgres
-database** behind a small API.
+Nearby places, day trips and sports fixtures are **real data**, located from your
+browser and shown on a real map. Your account, your plans and your saved places
+live in a **real Postgres database** behind a small API.
+
+Nothing in the app is invented.
 
 ## Run it
 
@@ -35,9 +37,9 @@ pnpm build               # production build of the app
 
 | Section | What it does |
 |---|---|
-| **Today** | A real time-positioned timeline, 6am to midnight. Nudge activities ±30 min, drop them, and see gaps surfaced as "1h 15m free". Live "now" marker and running totals. Requires an account. |
+| **Today** | A time-positioned timeline for **any date**, 6am to midnight, holding both places and ticketed events. Nudge items ±30 min, drop them, see gaps as "1h 15m free". Live "now" marker. Requires an account. |
 | **Explore** | Three tabs — see below. No account needed to browse. |
-| **Escapes** | Ten curated destinations — nightly rate, flight length, best months, temperature. "Somewhere worth a week of your life" is an editorial judgement, not a map feature, so these stay hand-picked. |
+| **Escapes** | Real day trips further out — beaches, nature reserves, viewpoints, theme parks, aquariums — out to 40 km, on a map or in a list. |
 | **Saved** | Everything hearted, split into nearby places and far-away escapes. Requires an account. |
 
 ### Explore's three tabs
@@ -50,6 +52,21 @@ pnpm build               # production build of the app
 
 Filters reset when you switch tabs: a category chosen under Nearby may not exist
 at all within Fun, which would otherwise land you on an unexplained empty grid.
+
+#### Escapes used to be fake
+
+It was ten hard-coded destinations with invented nightly rates and flight times —
+the one part of the app that wasn't real. It now runs the same OpenStreetMap
+pipeline at a wider radius, restricted to places worth a drive.
+
+The invented numbers are gone rather than replaced: nightly rates and flight
+times can't come from a free keyless source, and guessing them was worse than
+omitting them.
+
+Measured limits: a cold 25 km query takes ~25–60s and a 40 km one ~30s; **60 km
+returns a 504 every time**, which is why 40 km is the cap. Results cache for a
+week, so that cost is paid once per area (~5ms afterwards) — and the loading state
+says so instead of appearing hung.
 
 #### Rides are not destinations
 
@@ -245,6 +262,61 @@ Successful area queries are recorded in `place_queries` keyed by a ~1km bucket
 plus radius and category set, with a 7-day TTL. A repeat visit to the same area
 goes from ~14s to ~9ms. Places are also cached in their own table so a saved or
 scheduled item still renders when the user has moved or changed the radius.
+
+## URLs
+
+Everything that decides what's on screen is in the URL: section, Explore tab,
+date, search, map-or-list, and the open detail panel. So a refresh keeps your
+place, Back works, and any view can be shared.
+
+```
+/                          today
+/?date=2026-08-22          a specific day
+/explore/nearby            everything around you
+/explore/fun               piers, arcades, bars, studios
+/explore/events            fixtures and gigs
+/explore/nearby?view=map   the same results as a map
+/explore/nearby?place=way%2F123   detail panel over the list
+/escapes                   day trips further out
+/saved                     your hearted places and events
+```
+
+Nav items are real `<a>` elements, so cmd-click, middle-click and "copy link
+address" behave as expected; the click handler only intercepts a plain left click.
+
+`src/lib/router.ts` is hand-rolled — four sections and five query params is less
+code than a router's configuration would be.
+
+## Deploying it
+
+One image serves the built frontend *and* the API, so there's one origin (no CORS
+or SameSite special-casing for the session cookie), one thing to deploy and one
+URL to share.
+
+```bash
+docker build -t sundial .
+docker run -p 8787:8787 -e DATABASE_URL=... -e NODE_ENV=production sundial
+```
+
+`render.yaml` is a ready blueprint: point Render at the repo and it provisions the
+web service plus a managed Postgres, wiring `DATABASE_URL` in automatically.
+Migrations run on boot, so a deploy can't get ahead of its schema.
+
+**HTTPS is not optional.** The browser Geolocation API refuses to run on an
+insecure origin, so "use my location" only works behind TLS once deployed —
+localhost is the sole exemption. The session cookie also only gets its `Secure`
+flag when `NODE_ENV=production`.
+
+Two traps worth knowing, both of which bit during setup:
+
+- `serveStatic` resolves its `root` against `process.cwd()`, and `pnpm --filter`
+  runs a package from *its own* directory. A hard-coded `'./dist'` silently missed
+  in the container, every asset fell through to the SPA handler, and the browser
+  got `index.html` where it expected JavaScript — **a blank page with a 200
+  status**. The root is now computed relative to cwd, and the container runs from
+  the repo root.
+- For the same reason the SPA fallback now 404s anything with a file extension.
+  Serving `index.html` for a missing asset is what hid the problem.
 
 ## Notes for future work
 

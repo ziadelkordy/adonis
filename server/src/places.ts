@@ -548,6 +548,92 @@ export interface NearbyResult {
   cached: boolean
 }
 
+/* -------------------------------------------------------------------------- */
+/* Escapes — trip-worthy places further out                                    */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * A deliberately narrow tag set: things worth a drive, not the nearest park or
+ * swimming pool. Kept separate from CATEGORY_FILTERS rather than added as a tenth
+ * category, because these tags already belong to water/outdoors/fun and
+ * `categoryFor` takes the first match — a new category listed first would quietly
+ * steal every beach and viewpoint out of the Nearby tab.
+ */
+const ESCAPE_FILTERS: Array<[string, string]> = [
+  ['natural', 'beach'],
+  ['leisure', 'nature_reserve'],
+  ['leisure', 'water_park'],
+  ['tourism', 'theme_park'],
+  ['tourism', 'zoo'],
+  ['tourism', 'aquarium'],
+  ['tourism', 'viewpoint'],
+]
+
+/**
+ * Measured ceiling. At 60km the public Overpass instance returns a 504 every
+ * time; 40km takes ~30s and succeeds. Escapes are cached for a week afterwards,
+ * so that cost is paid once per area.
+ */
+export const ESCAPE_MAX_RADIUS_M = 40_000
+
+function buildEscapeQuery(lat: number, lon: number, radiusM: number): string {
+  const valuesByKey = new Map<string, Set<string>>()
+  for (const [key, value] of ESCAPE_FILTERS) {
+    const values = valuesByKey.get(key) ?? new Set<string>()
+    values.add(value)
+    valuesByKey.set(key, values)
+  }
+
+  const clauses = [...valuesByKey.entries()]
+    .map(([key, values]) => {
+      const list = [...values]
+      const match = list.length === 1 ? `="${list[0]}"` : `~"^(${list.join('|')})$"`
+      return `nwr["${key}"${match}]["name"];`
+    })
+    .join('\n  ')
+
+  const { south, west, north, east } = boundingBox(lat, lon, radiusM)
+  const bbox = [south, west, north, east].map((value) => value.toFixed(5)).join(',')
+
+  return `[out:json][timeout:60][bbox:${bbox}];\n(\n  ${clauses}\n);\nout center 400;`
+}
+
+export async function fetchEscapes(
+  lat: number,
+  lon: number,
+  requestedRadiusM: number,
+): Promise<NearbyResult> {
+  const radiusM = Math.min(requestedRadiusM, ESCAPE_MAX_RADIUS_M)
+  // Distinct prefix so escapes and nearby never read each other's cache entries.
+  const key = `escapes:${cacheKey(lat, lon, radiusM, [])}`
+
+  const cached = await readCache(key)
+  if (cached) return { places: withDistance(cached, lat, lon), cached: true }
+
+  const elements = await queryOverpass(buildEscapeQuery(lat, lon, radiusM))
+
+  const byId = new Map<string, Place>()
+  for (const element of elements) {
+    const place = normalize(element)
+    if (place && haversineKm(lat, lon, place.lat, place.lon) * 1000 <= radiusM) {
+      byId.set(place.id, place)
+    }
+  }
+  const places = [...byId.values()]
+
+  await upsertPlaces(places)
+  if (places.length > 0) {
+    await sql`
+      INSERT INTO place_queries (cache_key, place_ids, fetched_at)
+      VALUES (${key}, ${places.map((place) => place.id)}, now())
+      ON CONFLICT (cache_key) DO UPDATE SET
+        place_ids = EXCLUDED.place_ids, fetched_at = now()
+    `
+  }
+
+  return { places: withDistance(places, lat, lon), cached: false }
+}
+
 export async function fetchNearby(
   lat: number,
   lon: number,

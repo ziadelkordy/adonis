@@ -188,6 +188,11 @@ export const api = {
       `/places/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`,
     ),
 
+  escapes: (lat: number, lon: number, radiusM: number) =>
+    request<{ places: Place[]; cached: boolean; count: number; radiusM: number }>(
+      `/places/escapes?lat=${lat}&lon=${lon}&radius=${radiusM}`,
+    ),
+
   events: (lat: number, lon: number, radiusM: number) =>
     request<EventsResponse>(`/events/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`),
 
