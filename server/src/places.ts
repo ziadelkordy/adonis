@@ -3,7 +3,33 @@ import { sql } from './db.ts'
 /** Identifies us to the free OSM services, as their usage policies require. */
 const USER_AGENT = 'Sundial/0.1 (personal project; local development)'
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+/*
+ * Several Overpass endpoints, tried in order.
+ *
+ * The main instance is unreachable from at least some hosting providers — from
+ * Render every request failed with a connection error while Nominatim (same
+ * project, same egress) worked fine, which points at overpass-api.de refusing
+ * datacenter IP ranges rather than anything wrong locally. One hard-coded host
+ * therefore means the entire app breaks on deploy for any area not already cached.
+ *
+ * OVERPASS_URLS overrides the list (comma-separated) without a code change.
+ */
+const OVERPASS_URLS: string[] = (
+  process.env.OVERPASS_URLS ??
+  [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://overpass.osm.jp/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ].join(',')
+)
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean)
+
+/** Remembers which endpoint last worked, so we start there next time. */
+let preferredOverpass = 0
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse'
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search'
 
@@ -500,42 +526,57 @@ const RETRY_DELAYS_MS = [0, 1000, 2500, 5000]
 async function queryOverpass(query: string): Promise<OverpassElement[]> {
   let lastMessage = 'unknown error'
 
-  for (const delay of RETRY_DELAYS_MS) {
-    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+  /*
+   * Endpoint rotation sits outside the retry loop: a backoff retry helps with a
+   * momentarily overloaded server, but not with one that simply refuses us. Start
+   * from whichever endpoint last succeeded so the common case costs one request.
+   */
+  for (let hop = 0; hop < OVERPASS_URLS.length; hop += 1) {
+    const index = (preferredOverpass + hop) % OVERPASS_URLS.length
+    const endpoint = OVERPASS_URLS[index]
 
-    let text: string
-    let status: number
+    for (const delay of RETRY_DELAYS_MS) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
 
-    try {
-      const response = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, {
-        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-        signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
-      })
-      status = response.status
-      text = await response.text()
-    } catch (error) {
-      // Abort or network failure — worth another attempt on a different backend.
-      lastMessage =
-        error instanceof Error && error.name === 'TimeoutError'
-          ? 'Overpass did not respond in time'
-          : 'Could not reach Overpass'
-      continue
-    }
+      let text: string
+      let status: number
 
-    if (status !== 200) {
-      lastMessage = `Overpass returned ${status}`
-      continue
-    }
-    if (!text.trimStart().startsWith('{')) {
-      // Overpass reports runtime errors as an HTML page with a 200 status.
-      lastMessage = 'Overpass returned an error page instead of data'
-      continue
-    }
+      try {
+        const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
+          headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+          signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+        })
+        status = response.status
+        text = await response.text()
+      } catch (error) {
+        lastMessage =
+          error instanceof Error && error.name === 'TimeoutError'
+            ? `${endpoint} did not respond in time`
+            : `could not reach ${endpoint}`
+        // A refused connection won't improve on retry; move to the next endpoint.
+        break
+      }
 
-    try {
-      return (JSON.parse(text) as { elements?: OverpassElement[] }).elements ?? []
-    } catch {
-      lastMessage = 'Overpass returned malformed JSON'
+      if (status !== 200) {
+        lastMessage = `${endpoint} returned ${status}`
+        continue
+      }
+      if (!text.trimStart().startsWith('{')) {
+        // Overpass reports runtime errors as an HTML page with a 200 status.
+        lastMessage = `${endpoint} returned an error page instead of data`
+        continue
+      }
+
+      try {
+        const elements = (JSON.parse(text) as { elements?: OverpassElement[] }).elements ?? []
+        if (index !== preferredOverpass) {
+          console.log(`Overpass: switched to ${endpoint}`)
+          preferredOverpass = index
+        }
+        return elements
+      } catch {
+        lastMessage = `${endpoint} returned malformed JSON`
+      }
     }
   }
 
