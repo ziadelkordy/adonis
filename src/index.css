@@ -43,6 +43,16 @@
   --color-lagoon-500: #16a48f;
   --color-lagoon-600: #0f7d6d;
 
+  /*
+   * Bear — the logo's greys. Warm-leaning rather than neutral, so a grey mark
+   * doesn't read as dead against a palette where everything else is sunlit.
+   */
+  --color-bear-100: #eceae7;
+  --color-bear-200: #d9d5d1;
+  --color-bear-400: #a8a29c;
+  --color-bear-600: #7a746e;
+  --color-bear-900: #3a3633;
+
   /* Ink — warm neutrals, brown-black rather than grey */
   --color-ink-900: #3b2a1a;
   --color-ink-800: #52402c;

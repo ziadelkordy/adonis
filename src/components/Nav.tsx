@@ -2,6 +2,7 @@ import { motion } from 'motion/react'
 import type { MouseEvent, ReactElement, SVGProps } from 'react'
 import { cx } from '@/lib/cx'
 import { type ExploreTab, type SectionName, routeToHref } from '@/lib/router'
+import { BearMark } from './BearMark'
 import { CalendarIcon, CompassIcon, HeartIcon, PalmIcon, PinIcon, SunIcon } from './icons'
 
 /** Only HeartIcon reads `filled`; the wider type lets all four share one list. */
@@ -184,9 +185,7 @@ export function Nav({
               }}
               className="flex items-center gap-2.5"
             >
-              <span className="relative grid size-9 place-items-center rounded-full bg-gradient-to-br from-sun-300 to-bloom-400 shadow-glow-sun">
-                <span className="size-4 rounded-full bg-cream" />
-              </span>
+              <BearMark className="size-9 shrink-0 rounded-full shadow-glow-sun" title="Adonis" />
               <span className="font-display text-xl font-semibold tracking-tight text-ink-900">
                 Adonis
               </span>
