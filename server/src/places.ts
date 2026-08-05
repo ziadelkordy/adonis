@@ -531,12 +531,20 @@ const RETRY_DELAYS_MS = [0, 1000, 2500, 5000]
  * stares at a spinner for a minute and a half and then gets an error. Failing in
  * twenty-five seconds is far kinder, and the cached path is unaffected because it
  * never gets here.
+ *
+ * Wide-area escape queries are legitimately slow — measured at 25-60s for a 25-40km
+ * radius — so they get their own, much larger budget. Using the short one for them
+ * turned a slow-but-working query into a guaranteed failure.
  */
 const TOTAL_BUDGET_MS = 25_000
+const WIDE_AREA_BUDGET_MS = 120_000
 
-async function queryOverpass(query: string): Promise<OverpassElement[]> {
+async function queryOverpass(
+  query: string,
+  budgetMs: number = TOTAL_BUDGET_MS,
+): Promise<OverpassElement[]> {
   let lastMessage = 'unknown error'
-  const deadline = Date.now() + TOTAL_BUDGET_MS
+  const deadline = Date.now() + budgetMs
 
   /*
    * Endpoint rotation sits outside the retry loop: a backoff retry helps with a
@@ -549,7 +557,7 @@ async function queryOverpass(query: string): Promise<OverpassElement[]> {
 
     for (const delay of RETRY_DELAYS_MS) {
       if (Date.now() >= deadline) {
-        throw new UpstreamError(`${lastMessage} (gave up after ${TOTAL_BUDGET_MS / 1000}s)`)
+        throw new UpstreamError(`${lastMessage} (gave up after ${budgetMs / 1000}s)`)
       }
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
 
@@ -669,7 +677,7 @@ export async function fetchEscapes(
   const cached = await readCache(key)
   if (cached) return { places: withDistance(cached, lat, lon), cached: true }
 
-  const elements = await queryOverpass(buildEscapeQuery(lat, lon, radiusM))
+  const elements = await queryOverpass(buildEscapeQuery(lat, lon, radiusM), WIDE_AREA_BUDGET_MS)
 
   const byId = new Map<string, Place>()
   for (const element of elements) {
