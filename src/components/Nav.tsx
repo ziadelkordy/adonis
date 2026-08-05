@@ -2,7 +2,7 @@ import { motion } from 'motion/react'
 import type { MouseEvent, ReactElement, SVGProps } from 'react'
 import { cx } from '@/lib/cx'
 import { type ExploreTab, type SectionName, routeToHref } from '@/lib/router'
-import { CalendarIcon, CompassIcon, HeartIcon, PalmIcon } from './icons'
+import { CalendarIcon, CompassIcon, HeartIcon, PalmIcon, PinIcon, SunIcon } from './icons'
 
 /** Only HeartIcon reads `filled`; the wider type lets all four share one list. */
 type TabIcon = (props: SVGProps<SVGSVGElement> & { filled?: boolean }) => ReactElement
@@ -103,9 +103,71 @@ interface NavProps {
   onSignOut: () => void
   /** Owned by the router in App, so there's one source of navigation truth. */
   onNavigate: (section: SectionName) => void
+  /*
+   * Location belongs in the header, not buried in one tab. It used to live only
+   * inside Explore's location bar, which meant anyone landing on Today — the
+   * default page — had no way to grant permission at all.
+   */
+  location: {
+    label: string | null
+    usingFallback: boolean
+    status: string
+    onEnable: () => void
+  }
 }
 
-export function Nav({ section, tab, savedCount, user, onSignOut, onNavigate }: NavProps) {
+/** Compact header control: where we think you are, and how to fix it if wrong. */
+function LocationChip({ location }: { location: NavProps['location'] }) {
+  const { label, usingFallback, status, onEnable } = location
+
+  if (status === 'prompting') {
+    return (
+      <span className="hidden items-center gap-1.5 rounded-full bg-sand/80 px-3 py-1.5 text-xs font-medium text-ink-700 sm:inline-flex">
+        <PinIcon className="size-3.5 animate-pulse text-bloom-400" />
+        Locating…
+      </span>
+    )
+  }
+
+  if (usingFallback) {
+    return (
+      <button
+        type="button"
+        onClick={onEnable}
+        title={
+          status === 'denied'
+            ? 'Location is blocked for this site. Allow it in your browser, then click here.'
+            : 'Use your real location'
+        }
+        className="inline-flex items-center gap-1.5 rounded-full bg-bloom-500 px-3 py-1.5 text-xs font-semibold text-white shadow-low transition hover:bg-bloom-400"
+      >
+        <SunIcon className="size-3.5" />
+        <span className="hidden sm:inline">Use my location</span>
+        <span className="sm:hidden">Locate</span>
+      </button>
+    )
+  }
+
+  return (
+    <span
+      className="hidden items-center gap-1.5 rounded-full bg-lagoon-50 px-3 py-1.5 text-xs font-medium text-lagoon-600 sm:inline-flex"
+      title="Using your device location"
+    >
+      <PinIcon className="size-3.5" />
+      {label ?? 'Located'}
+    </span>
+  )
+}
+
+export function Nav({
+  section,
+  tab,
+  savedCount,
+  user,
+  onSignOut,
+  onNavigate,
+  location,
+}: NavProps) {
   const navigate = onNavigate
 
   return (
@@ -147,7 +209,9 @@ export function Nav({ section, tab, savedCount, user, onSignOut, onNavigate }: N
               ))}
             </nav>
 
-            <div className="ml-auto flex items-center gap-3 md:ml-0">
+            <div className="ml-auto flex items-center gap-2 md:ml-0 md:gap-3">
+              <LocationChip location={location} />
+
               {user ? (
                 <div className="flex items-center gap-2">
                   <span

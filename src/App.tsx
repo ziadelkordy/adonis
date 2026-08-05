@@ -37,6 +37,13 @@ export default function App() {
         onSignOut={() => void logout()}
         // Changing section closes any open detail panel.
         onNavigate={(section) => router.update({ section, detail: null })}
+        location={{
+          label: state.locationLabel,
+          usingFallback: state.usingFallbackLocation,
+          status: state.geo.status,
+          // retry clears a remembered refusal, so re-allowing in the browser works.
+          onEnable: state.geo.retry,
+        }}
       />
 
       <main id="main" className="mx-auto max-w-7xl px-4 pt-8 pb-28 sm:px-6 lg:px-8 lg:pb-16">

@@ -114,10 +114,15 @@ function LocationBar({
         <p className="mt-0.5 text-xs text-ink-700">
           {usingFallbackLocation
             ? geo.status === 'denied'
-              ? 'Location declined — showing Santa Monica instead.'
+              ? /* Once blocked, only the browser can undo it — so say where. */
+                'Location is blocked for this site. Click the icon at the left of the address bar, allow location, then press the button here.'
               : geo.status === 'prompting'
                 ? 'Asking your browser for permission…'
-                : 'Showing Santa Monica until you share your location.'
+                : geo.status === 'unavailable'
+                  ? 'This browser cannot report a location. Showing Santa Monica.'
+                  : geo.status === 'error'
+                    ? `${geo.message ?? 'Location unavailable'} — showing Santa Monica.`
+                    : 'Showing Santa Monica until you share your location.'
             : `${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)} · accurate to ~${Math.round(
                 coords.accuracyM,
               )}m`}
@@ -125,9 +130,9 @@ function LocationBar({
       </div>
 
       {usingFallbackLocation && geo.status !== 'prompting' && (
-        <Button variant="bloom" size="sm" onClick={geo.request}>
+        <Button variant="bloom" size="sm" onClick={geo.retry}>
           <SunIcon className="size-4" />
-          Use my location
+          {geo.status === 'denied' ? 'Try again' : 'Use my location'}
         </Button>
       )}
 

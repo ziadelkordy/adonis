@@ -18,11 +18,33 @@ interface GeoState {
 /** Falls back to Santa Monica so the app is still usable without permission. */
 export const FALLBACK_COORDS: Coords = { lat: 34.0195, lon: -118.4912, accuracyM: 0 }
 
+/*
+ * Remembers a refusal so we don't re-ask on every page load. Browsers suppress a
+ * repeat prompt anyway once denied, so asking again just produces a silent failure.
+ */
+const DENIED_KEY = 'sundial:geo-denied'
+
+function readDenied(): boolean {
+  try {
+    return window.localStorage.getItem(DENIED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeDenied(denied: boolean): void {
+  try {
+    if (denied) window.localStorage.setItem(DENIED_KEY, '1')
+    else window.localStorage.removeItem(DENIED_KEY)
+  } catch {
+    // Private mode; the in-memory state still works for this session.
+  }
+}
+
 /**
  * Wraps the browser Geolocation API.
  *
- * Note it only works on a secure origin — https, or localhost, which is why this
- * is fine in dev but needs TLS once deployed.
+ * Only works on a secure origin — https, or localhost.
  */
 export function useGeolocation() {
   const [state, setState] = useState<GeoState>({ status: 'idle', coords: null, message: null })
@@ -41,6 +63,7 @@ export function useGeolocation() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        writeDenied(false)
         setState({
           status: 'granted',
           coords: {
@@ -53,6 +76,7 @@ export function useGeolocation() {
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
+          writeDenied(true)
           setState({
             status: 'denied',
             coords: null,
@@ -74,28 +98,47 @@ export function useGeolocation() {
   }, [])
 
   /*
-   * Ask up front only if permission was already granted in a previous visit.
-   * Otherwise wait for a deliberate click — an unprompted permission dialog on
-   * first paint is hostile, and Safari doesn't support the Permissions query for
-   * geolocation at all, which is why this is guarded rather than assumed.
+   * Ask on load.
+   *
+   * This deliberately does NOT gate on the Permissions API. The previous version
+   * only requested when permission was already 'granted', which meant a first-time
+   * visitor sat at 'prompt' forever and the browser's own dialog never appeared —
+   * so nobody was ever asked, and everyone silently got the fallback city. Safari
+   * made it worse: it doesn't implement the Permissions API for geolocation at all,
+   * so that check bailed before doing anything.
+   *
+   * Calling getCurrentPosition is what makes the browser ask. It needs no user
+   * gesture, and for an app whose whole purpose is "what's near me", being asked
+   * on arrival is what people expect.
    */
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return
-
-    let cancelled = false
-    navigator.permissions
-      .query({ name: 'geolocation' })
-      .then((permission) => {
-        if (!cancelled && permission.state === 'granted') request()
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setState({
+        status: 'unavailable',
+        coords: null,
+        message: 'This browser cannot report your location.',
       })
-      .catch(() => {
-        // Permissions API unsupported — leave it to the user to click.
-      })
-
-    return () => {
-      cancelled = true
+      return
     }
+
+    // Previously refused: show that state rather than firing a doomed request.
+    if (readDenied()) {
+      setState({
+        status: 'denied',
+        coords: null,
+        message: 'Location permission was declined.',
+      })
+      return
+    }
+
+    request()
   }, [request])
 
-  return { ...state, request }
+  /** Clears the remembered refusal so the user can try again after re-allowing. */
+  const retry = useCallback(() => {
+    writeDenied(false)
+    request()
+  }, [request])
+
+  return { ...state, request, retry }
 }
