@@ -17,7 +17,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:all": "vitest run && pnpm --filter @sundial/server test"
+    "test:all": "vitest run && pnpm --filter @sundial/server test",
+    "warm": "pnpm --filter @sundial/server warm"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

@@ -520,11 +520,23 @@ export class UpstreamError extends Error {}
  * retry. A retry usually lands on a different, healthy backend. Failing fast and
  * retrying beats waiting patiently here.
  */
-const ATTEMPT_TIMEOUT_MS = 30_000
+const ATTEMPT_TIMEOUT_MS = 20_000
 const RETRY_DELAYS_MS = [0, 1000, 2500, 5000]
+
+/*
+ * Overall budget for a single lookup, across every endpoint and retry.
+ *
+ * Without it, an environment that can reach none of the endpoints spends 90+
+ * seconds working through the full matrix before admitting defeat — the user
+ * stares at a spinner for a minute and a half and then gets an error. Failing in
+ * twenty-five seconds is far kinder, and the cached path is unaffected because it
+ * never gets here.
+ */
+const TOTAL_BUDGET_MS = 25_000
 
 async function queryOverpass(query: string): Promise<OverpassElement[]> {
   let lastMessage = 'unknown error'
+  const deadline = Date.now() + TOTAL_BUDGET_MS
 
   /*
    * Endpoint rotation sits outside the retry loop: a backoff retry helps with a
@@ -536,15 +548,21 @@ async function queryOverpass(query: string): Promise<OverpassElement[]> {
     const endpoint = OVERPASS_URLS[index]
 
     for (const delay of RETRY_DELAYS_MS) {
+      if (Date.now() >= deadline) {
+        throw new UpstreamError(`${lastMessage} (gave up after ${TOTAL_BUDGET_MS / 1000}s)`)
+      }
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
 
       let text: string
       let status: number
 
+      // Never let one attempt overrun the overall budget.
+      const remaining = Math.max(1000, Math.min(ATTEMPT_TIMEOUT_MS, deadline - Date.now()))
+
       try {
         const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
           headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-          signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+          signal: AbortSignal.timeout(remaining),
         })
         status = response.status
         text = await response.text()

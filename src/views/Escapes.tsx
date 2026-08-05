@@ -235,10 +235,11 @@ export function Escapes({ state }: { state: AppState }) {
       {status === 'error' && (
         <EmptyState
           emoji="🛰️"
-          title="Couldn't reach OpenStreetMap"
+          title="This area hasn't been loaded yet"
           description={
-            error ??
-            'A wide-area search is heavy, and the free public service sheds load when busy. A narrower radius usually goes through.'
+            'Day trips come from OpenStreetMap, and the public service refuses requests from the ' +
+            'server this app runs on. Areas loaded before are instant; new ones need warming up ' +
+            `first. A narrower radius may already be cached.${error ? ` (${error})` : ''}`
           }
           action={
             <div className="flex flex-wrap justify-center gap-2">

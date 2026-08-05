@@ -706,10 +706,12 @@ export function Explore({ state }: { state: AppState }) {
       {placesStatus === 'error' && (
         <EmptyState
           emoji="🛰️"
-          title="Couldn't reach OpenStreetMap"
+          title="This area hasn't been loaded yet"
           description={
-            placesError ??
-            'The free public OpenStreetMap service is busy. It usually clears in a few seconds.'
+            "Sundial reads places from OpenStreetMap, and the public service it uses won't accept " +
+            'requests from the server this app runs on. Areas that have been loaded before are ' +
+            'served instantly from the database; new ones need warming up first. Somewhere already ' +
+            `loaded will work right now.${placesError ? ` (${placesError})` : ''}`
           }
           action={<Button onClick={() => void reloadNearby()}>Try again</Button>}
         />
