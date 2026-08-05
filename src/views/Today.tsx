@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import type { DayItem, Place, ScheduledEvent } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
@@ -215,6 +215,9 @@ function DateNav({ date, onChange }: { date: string; onChange: (next: string) =>
 /* Timeline item                                                               */
 /* -------------------------------------------------------------------------- */
 
+/** Drag snaps to quarter hours — the same grid the auto-planner uses. */
+const SNAP_MIN = 15
+
 function TimelineItem({
   entry,
   onRemove,
@@ -231,20 +234,102 @@ function TimelineItem({
   const height = Math.max(entry.durationMin * PX_PER_MIN, 72)
   const interactive = entry.placeId !== null
 
+  /*
+   * Drag to reschedule.
+   *
+   * Pointer events rather than HTML5 drag-and-drop: they cover mouse, touch and
+   * pen with one code path, and give pointer capture so the drag survives the
+   * cursor leaving the card. The ±30 buttons stay — they're the keyboard route,
+   * and dragging is an enhancement, not a replacement.
+   */
+  const dragOrigin = useRef<{ y: number; pointerId: number } | null>(null)
+  const [dragMinutes, setDragMinutes] = useState<number | null>(null)
+  const isDragging = dragMinutes !== null
+
+  const minutesFrom = (clientY: number): number => {
+    const origin = dragOrigin.current
+    if (!origin) return 0
+    return Math.round((clientY - origin.y) / PX_PER_MIN / SNAP_MIN) * SNAP_MIN
+  }
+
+  const beginDrag = (event: React.PointerEvent<HTMLElement>) => {
+    // Never start a drag from a control; those clicks must still land.
+    if ((event.target as HTMLElement).closest('button, a, input')) return
+
+    /*
+     * Touch drags only start from the grip. Making the whole card touch-draggable
+     * needs `touch-action: none` on it, which would stop the page scrolling
+     * wherever a card happens to be under your thumb.
+     */
+    const fromGrip = Boolean((event.target as HTMLElement).closest('[data-drag-grip]'))
+    if (event.pointerType !== 'mouse' && !fromGrip) return
+
+    dragOrigin.current = { y: event.clientY, pointerId: event.pointerId }
+    setDragMinutes(0)
+
+    /*
+     * Listeners go on `window`, not on this element via React props.
+     *
+     * The obvious version — onPointerMove on the motion.li — silently never fired:
+     * the drag would start and then nothing moved. Native listeners are immune to
+     * whatever retargeting pointer capture and the animation library's own gesture
+     * handling do between them, and they keep working when the cursor leaves the
+     * card, which is the whole point during a drag.
+     */
+    const onPointerMove = (native: PointerEvent) => {
+      if (native.pointerId !== event.pointerId) return
+      setDragMinutes(minutesFrom(native.clientY))
+    }
+
+    const finish = (native: PointerEvent, commit: boolean) => {
+      if (native.pointerId !== event.pointerId) return
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+
+      // Read the delta off the event, not off state — state here would be stale.
+      const delta = commit ? minutesFrom(native.clientY) : 0
+      dragOrigin.current = null
+      setDragMinutes(null)
+      // A click without movement shouldn't fire a pointless request.
+      if (delta !== 0) onMove(delta)
+    }
+
+    const onUp = (native: PointerEvent) => finish(native, true)
+    const onCancel = (native: PointerEvent) => finish(native, false)
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+  }
+
+  const offsetMin = dragMinutes ?? 0
+  const previewStart = entry.startMin + offsetMin
+  const previewEnd = entry.endMin + offsetMin
+
   return (
     <motion.li
-      layout
+      // `layout` fights a live drag for control of `top`, so it's off mid-drag.
+      layout={!isDragging}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-      style={{ top: (entry.startMin - RAIL_START) * PX_PER_MIN, height }}
+      onPointerDown={beginDrag}
+      style={{
+        top: (previewStart - RAIL_START) * PX_PER_MIN,
+        height,
+        zIndex: isDragging ? 30 : undefined,
+      }}
       className="absolute inset-x-0 flex"
     >
       <div
         className={cx(
           'group relative flex w-full gap-3 overflow-hidden rounded-petal bg-shell p-3.5 pl-4',
-          'ring-1 ring-inset shadow-low transition-all duration-200 hover:shadow-mid',
-          isNow ? 'ring-2 ring-bloom-400' : 'ring-ink-200/70',
+          'ring-1 ring-inset transition-shadow duration-200',
+          isDragging
+            ? 'cursor-grabbing shadow-high ring-2 ring-bloom-400'
+            : 'cursor-grab shadow-low hover:shadow-mid',
+          isNow && !isDragging ? 'ring-2 ring-bloom-400' : !isDragging && 'ring-ink-200/70',
         )}
       >
         <span
@@ -254,9 +339,20 @@ function TimelineItem({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <p className="font-display text-sm font-semibold text-ink-900 tabular-nums">
-              {formatTime(entry.startMin)} – {formatTime(entry.endMin)}
+            <p
+              className={cx(
+                'font-display text-sm font-semibold tabular-nums',
+                isDragging ? 'text-bloom-600' : 'text-ink-900',
+              )}
+            >
+              {formatTime(previewStart)} – {formatTime(previewEnd)}
             </p>
+            {isDragging && offsetMin !== 0 && (
+              <span className="text-xs font-medium text-bloom-500 tabular-nums">
+                {offsetMin > 0 ? '+' : '−'}
+                {formatDuration(Math.abs(offsetMin))}
+              </span>
+            )}
             {isNow && (
               <Badge tone="bloom" className="text-[0.625rem]">
                 Now
@@ -312,6 +408,28 @@ function TimelineItem({
             </a>
           )}
         </div>
+
+        {/* Touch-drag handle. `touch-action: none` is confined to this, so the
+            page still scrolls everywhere else on the card. */}
+        <span
+          data-drag-grip
+          aria-hidden
+          title="Drag to reschedule"
+          className={cx(
+            'flex shrink-0 cursor-grab touch-none items-center self-stretch px-1',
+            'text-ink-300 transition-colors group-hover:text-ink-500',
+            isDragging && 'text-bloom-400',
+          )}
+        >
+          <svg viewBox="0 0 8 16" className="h-5 w-2" fill="currentColor" focusable="false">
+            <circle cx="2" cy="4" r="1.2" />
+            <circle cx="6" cy="4" r="1.2" />
+            <circle cx="2" cy="8" r="1.2" />
+            <circle cx="6" cy="8" r="1.2" />
+            <circle cx="2" cy="12" r="1.2" />
+            <circle cx="6" cy="12" r="1.2" />
+          </svg>
+        </span>
 
         <div className="flex shrink-0 flex-col items-end gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
           <div className="flex items-center gap-1">
@@ -549,7 +667,7 @@ export function Today({ state }: { state: AppState }) {
               {isToday ? 'Your day' : describeDate(date)}
             </h2>
             <p className="mt-1.5 text-sm text-ink-700">
-              Hover an item to nudge it half an hour either way, or drop it entirely.
+              Drag an item to reschedule it, or use the arrows for half-hour nudges.
             </p>
           </div>
           <Badge tone="lagoon">

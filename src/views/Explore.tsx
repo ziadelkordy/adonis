@@ -13,8 +13,13 @@ import { Badge, Button, Chip, EmptyState, SectionHeader } from '@/components/ui'
 
 type Tab = 'nearby' | 'fun' | 'events'
 
+/*
+ * These sit *under* the location bar, not beside it: "nearby" is the context the
+ * whole tab shares, and these choose what kind of nearby thing to show. The route
+ * segment stays 'nearby' so existing links keep working.
+ */
 const TABS: Array<{ id: Tab; label: string; emoji: string }> = [
-  { id: 'nearby', label: 'Nearby', emoji: '📍' },
+  { id: 'nearby', label: 'Everything', emoji: '✳️' },
   { id: 'fun', label: 'Fun', emoji: '🎡' },
   { id: 'events', label: 'Events', emoji: '🎟️' },
 ]
@@ -547,12 +552,12 @@ export function Explore({ state }: { state: AppState }) {
 
   const HEADINGS: Record<Tab, { title: string; description: string }> = {
     nearby: {
-      title: locationLabel ? `What's on near ${locationLabel}?` : 'What are we doing today?',
+      title: locationLabel ? `Near ${locationLabel}` : 'Near you',
       description:
         "Real places from OpenStreetMap, sorted by how far they are from you. Visit lengths are estimates by category — OpenStreetMap records opening hours, not how long you'll stay.",
     },
     fun: {
-      title: locationLabel ? `Something fun in ${locationLabel}` : 'Something fun',
+      title: locationLabel ? `Something fun near ${locationLabel}` : 'Something fun',
       description:
         'Piers, arcades, bowling, escape rooms, aquariums, bars and studios — the same real OpenStreetMap data, narrowed to the places you go to enjoy yourself.',
     },
@@ -570,6 +575,8 @@ export function Explore({ state }: { state: AppState }) {
         title={HEADINGS[tab].title}
         description={HEADINGS[tab].description}
       />
+
+      <LocationBar state={state} showRadius={tab !== 'events'} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <TabBar tab={tab} onChange={changeTab} />
@@ -600,8 +607,6 @@ export function Explore({ state }: { state: AppState }) {
           </div>
         )}
       </div>
-
-      <LocationBar state={state} showRadius={tab !== 'events'} />
 
       {tab === 'events' && <EventsTab state={state} />}
 
