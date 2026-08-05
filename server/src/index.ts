@@ -71,7 +71,23 @@ function parseDay(raw: string | undefined): string | null {
 /* Health                                                                      */
 /* -------------------------------------------------------------------------- */
 
-app.get('/api/health', async (c) => {
+/*
+ * Liveness only — deliberately does NOT touch the database.
+ *
+ * This is the platform's health check, and it previously ran `SELECT 1`. Managed
+ * Postgres on a free plan auto-suspends when idle and takes a moment to wake, so
+ * a slow or failed wake made this endpoint fail, the platform marked the instance
+ * unhealthy, and pulled it out of rotation — every request then answered from the
+ * edge with `x-render-routing: no-server`, a 404 that never reached the app at
+ * all. Measured at 19 failures in 25 requests.
+ *
+ * A liveness probe answers "is this process up", nothing more. Readiness of a
+ * dependency belongs on its own endpoint, below.
+ */
+app.get('/api/health', (c) => c.json({ ok: true }))
+
+/** Database reachability, for humans and monitoring — never the platform probe. */
+app.get('/api/health/db', async (c) => {
   try {
     await assertDatabaseReachable()
     return c.json({ ok: true, db: 'up' })
