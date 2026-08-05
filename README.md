@@ -298,9 +298,23 @@ docker build -t sundial .
 docker run -p 8787:8787 -e DATABASE_URL=... -e NODE_ENV=production sundial
 ```
 
-`render.yaml` is a ready blueprint: point Render at the repo and it provisions the
-web service plus a managed Postgres, wiring `DATABASE_URL` in automatically.
-Migrations run on boot, so a deploy can't get ahead of its schema.
+`render.yaml` is a ready blueprint for the **web service only**. Migrations run on
+boot, so a deploy can't get ahead of its schema.
+
+**Postgres is deliberately not provisioned by the blueprint.** Render's free
+Postgres is deleted 30 days after creation (plus a 14-day grace period), taking
+every account, plan and saved place with it — a data-loss deadline rather than a
+free tier. Point `DATABASE_URL` at something that doesn't expire (Neon's free tier
+is the easy option) or pay for Render Postgres.
+
+Managed Postgres refuses plaintext connections. `sslSetting` in `server/src/db.ts`
+turns TLS on for any remote host — and for any URL carrying `?sslmode=require` —
+while leaving local development plaintext. It's set explicitly rather than left to
+the driver's URL parsing, because getting it wrong surfaces only at deploy time as
+a connection error that says nothing about TLS.
+
+Also worth knowing: a free Render web service sleeps after 15 minutes idle and
+takes about a minute to wake, so the first visit after a quiet spell is slow.
 
 **HTTPS is not optional.** The browser Geolocation API refuses to run on an
 insecure origin, so "use my location" only works behind TLS once deployed —

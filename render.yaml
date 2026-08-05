@@ -1,11 +1,19 @@
-# Render blueprint: one web service + one managed Postgres.
+# Render blueprint: the web service only. Postgres is deliberately *not*
+# provisioned here.
 #
-# Chosen because it needs no CLI and no credit card on the free tier — push the
-# repo, point Render at it, and DATABASE_URL is wired in automatically.
+# Why: Render's free Postgres is deleted 30 days after creation (plus a 14-day
+# grace period), taking every account and plan with it. For something you intend to
+# share with people, that's a data-loss deadline rather than a free tier. Point
+# DATABASE_URL at a Postgres that doesn't expire instead — Neon's free tier is the
+# easy option — or pay for Render Postgres (~$7/month).
 #
-# HTTPS matters here beyond the padlock: the browser Geolocation API refuses to
-# run on an insecure origin, so "use my location" only works once deployed behind
-# TLS (localhost is the one exemption). Render terminates TLS for you.
+# HTTPS matters here beyond the padlock: the browser Geolocation API refuses to run
+# on an insecure origin, so "use my location" only works once deployed behind TLS
+# (localhost is the one exemption). Render terminates TLS for you, and NODE_ENV
+# being production is what marks the session cookie Secure.
+#
+# Note the free web service sleeps after 15 minutes idle and takes ~1 minute to
+# wake, so the first visit after a quiet spell is slow.
 services:
   - type: web
     name: sundial
@@ -16,17 +24,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Marks the session cookie Secure, which needs the TLS that Render provides.
+      # Paste a connection string from Neon (or any managed Postgres).
+      # Hosted providers generally require ?sslmode=require on the end.
       - key: DATABASE_URL
-        fromDatabase:
-          name: sundial-db
-          property: connectionString
+        sync: false
       # Optional: adds comedy, music and theatre listings. Sport works without it.
       - key: TICKETMASTER_API_KEY
         sync: false
-
-databases:
-  - name: sundial-db
-    plan: free
-    databaseName: sundial
-    user: sundial
