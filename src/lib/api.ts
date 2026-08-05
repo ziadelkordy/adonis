@@ -28,8 +28,61 @@ export interface Place {
 
 export interface DayItem {
   id: string
-  placeId: string
+  /** Exactly one of these is set — a scheduled item is a place or an event. */
+  placeId: string | null
+  eventId: string | null
   startMin: number
+}
+
+/** An event snapshot stored server-side, so a plan survives it being delisted. */
+export interface ScheduledEvent {
+  id: string
+  source: string
+  name: string
+  date: string
+  /** Minutes from midnight, or null when no time was announced. */
+  startMinutes: number | null
+  venueName: string | null
+  city: string | null
+  lat: number | null
+  lon: number | null
+  segment: string | null
+  genre: string | null
+  priceMin: number | null
+  priceMax: number | null
+  currency: string | null
+  imageUrl: string | null
+  url: string
+  durationMin: number
+}
+
+/** Turns a browsable event into the snapshot the server stores. */
+export function toSnapshot(event: EventItem, durationMin = 150): Omit<ScheduledEvent, 'source'> & {
+  source: string
+} {
+  const [hours, minutes] = (event.time ?? '').split(':')
+  const startMinutes =
+    event.time && Number.isFinite(Number(hours)) ? Number(hours) * 60 + Number(minutes ?? 0) : null
+
+  return {
+    id: event.id,
+    source: event.source,
+    name: event.name,
+    date: event.date,
+    startMinutes,
+    venueName: event.venueName,
+    city: event.city,
+    lat: event.lat,
+    lon: event.lon,
+    segment: event.segment,
+    genre: event.genre,
+    priceMin: event.priceMin,
+    priceMax: event.priceMax,
+    currency: event.currency,
+    imageUrl: event.imageUrl,
+    url: event.url,
+    durationMin,
+  }
 }
 
 export interface EventItem {
@@ -145,21 +198,34 @@ export const api = {
 
   /* The day --------------------------------------------------------------- */
 
-  getDay: () => request<{ day: string; items: DayItem[]; places: Place[] }>('/day'),
+  getDay: (day: string) =>
+    request<{ day: string; items: DayItem[]; places: Place[]; events: ScheduledEvent[] }>(
+      `/day?day=${day}`,
+    ),
 
-  addToDay: (placeId: string, startMin: number) =>
-    request<DayItem>('/day', { method: 'POST', body: JSON.stringify({ placeId, startMin }) }),
+  addToDay: (placeId: string, startMin: number, day: string) =>
+    request<DayItem>('/day', {
+      method: 'POST',
+      body: JSON.stringify({ placeId, startMin, day }),
+    }),
+
+  addEventToDay: (event: ReturnType<typeof toSnapshot>, startMin: number, day: string) =>
+    request<DayItem>('/day', {
+      method: 'POST',
+      body: JSON.stringify({ event, startMin, day }),
+    }),
 
   moveDayItem: (id: string, startMin: number) =>
     request<{ ok: true }>(`/day/${id}`, { method: 'PATCH', body: JSON.stringify({ startMin }) }),
 
   removeDayItem: (id: string) => request<{ ok: true }>(`/day/${id}`, { method: 'DELETE' }),
 
-  clearDay: () => request<{ ok: true }>('/day', { method: 'DELETE' }),
+  clearDay: (day: string) => request<{ ok: true }>(`/day?day=${day}`, { method: 'DELETE' }),
 
   /* Saved ----------------------------------------------------------------- */
 
-  getSaved: () => request<{ ids: string[]; places: Place[] }>('/saved'),
+  getSaved: () =>
+    request<{ ids: string[]; places: Place[]; events: ScheduledEvent[] }>('/saved'),
 
   save: (itemId: string) =>
     request<{ ok: true }>('/saved', { method: 'PUT', body: JSON.stringify({ itemId }) }),

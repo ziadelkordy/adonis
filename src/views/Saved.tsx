@@ -17,6 +17,8 @@ export function Saved({ state }: { state: AppState }) {
     toggleSaved,
     addToDay,
     setView,
+    openDetail,
+    savedEvents,
   } = state
 
   const savedDestinations = useMemo(
@@ -25,7 +27,7 @@ export function Saved({ state }: { state: AppState }) {
   )
 
   // savedPlaces comes from the server and already contains only saved places.
-  const total = savedPlaces.length + savedDestinations.length
+  const total = savedPlaces.length + savedDestinations.length + savedEvents.length
 
   if (authStatus === 'loading') {
     return <div className="h-96 animate-pulse rounded-dune bg-sand/60" />
@@ -49,7 +51,7 @@ export function Saved({ state }: { state: AppState }) {
         description={
           total === 0
             ? 'Nothing saved yet.'
-            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedPlaces.length} nearby, ${savedDestinations.length} far away.`
+            : `${total} ${pluralize(total, 'thing')} put aside for later — ${savedPlaces.length} nearby, ${savedEvents.length} ${pluralize(savedEvents.length, 'event')}, ${savedDestinations.length} far away.`
         }
       />
 
@@ -87,9 +89,43 @@ export function Saved({ state }: { state: AppState }) {
                 scheduled={scheduledPlaceIds.has(place.id)}
                 onToggleSaved={() => void toggleSaved(place.id)}
                 onAdd={() => void addToDay(place)}
+                onOpen={() => openDetail(place.id)}
               />
             ))}
           </div>
+        </section>
+      )}
+
+      {savedEvents.length > 0 && (
+        <section className="space-y-4">
+          <h3 className="text-lg font-semibold text-ink-900">
+            Events{' '}
+            <span className="font-sans text-sm font-normal text-ink-500">
+              ({savedEvents.length})
+            </span>
+          </h3>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {savedEvents.map((event) => (
+              <li
+                key={event.id}
+                className="flex items-center gap-3 rounded-petal bg-shell p-4 ring-1 ring-ink-200/70 ring-inset shadow-low"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink-900">{event.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-ink-700">
+                    {[event.date, event.venueName].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void toggleSaved(event.id)}
+                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-bloom-600 transition hover:bg-bloom-50"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

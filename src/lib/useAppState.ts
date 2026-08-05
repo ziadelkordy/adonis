@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, type ApiUser, type DayItem, type Place, api } from './api'
+import {
+  ApiError,
+  type ApiUser,
+  type DayItem,
+  type EventItem,
+  type Place,
+  type ScheduledEvent,
+  api,
+  toSnapshot,
+} from './api'
+import { type Router, describeDateInline, todayISO } from './router'
 import { FALLBACK_COORDS, useGeolocation } from './useGeolocation'
-import type { ViewId } from './types'
 
 export const DAY_START_MIN = 6 * 60
 export const DAY_END_MIN = 24 * 60
@@ -41,8 +50,10 @@ function fitsAt(start: number, duration: number, ranges: Placed[], gap = GAP_MIN
   return ranges.every((range) => start + duration + gap <= range.start || start >= range.end + gap)
 }
 
-export function useAppState() {
-  const [view, setView] = useState<ViewId>('today')
+export function useAppState(router: Router) {
+  /* The visible day comes from the URL, so a plan for a specific date can be
+     linked, refreshed and reached with the back button. */
+  const date = router.route.date ?? todayISO()
 
   /* Auth ------------------------------------------------------------------ */
   const [user, setUser] = useState<ApiUser | null>(null)
@@ -62,8 +73,10 @@ export function useAppState() {
   /* User data ------------------------------------------------------------- */
   const [dayItems, setDayItems] = useState<DayItem[]>([])
   const [dayPlaces, setDayPlaces] = useState<Place[]>([])
+  const [dayEvents, setDayEvents] = useState<ScheduledEvent[]>([])
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [savedPlaces, setSavedPlaces] = useState<Place[]>([])
+  const [savedEvents, setSavedEvents] = useState<ScheduledEvent[]>([])
 
   const [toast, setToast] = useState<Toast | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -103,20 +116,24 @@ export function useAppState() {
   }, [])
 
   const loadUserData = useCallback(async () => {
-    const [day, saved] = await Promise.all([api.getDay(), api.getSaved()])
+    const [day, saved] = await Promise.all([api.getDay(date), api.getSaved()])
     setDayItems(day.items)
     setDayPlaces(day.places)
+    setDayEvents(day.events)
     setSavedIds(new Set(saved.ids))
     setSavedPlaces(saved.places)
-  }, [])
+    setSavedEvents(saved.events)
+  }, [date])
 
   // Pull the signed-in user's day and saved items; clear them again on sign-out.
   useEffect(() => {
     if (!user) {
       setDayItems([])
       setDayPlaces([])
+      setDayEvents([])
       setSavedIds(new Set())
       setSavedPlaces([])
+      setSavedEvents([])
       return
     }
 
@@ -189,8 +206,21 @@ export function useAppState() {
     return map
   }, [dayPlaces, savedPlaces, places])
 
+  /** Scheduled and saved event snapshots, for rendering without a refetch. */
+  const eventById = useMemo(() => {
+    const map = new Map<string, ScheduledEvent>()
+    for (const event of [...dayEvents, ...savedEvents]) map.set(event.id, event)
+    return map
+  }, [dayEvents, savedEvents])
+
   const scheduledPlaceIds = useMemo(
-    () => new Set(dayItems.map((item) => item.placeId)),
+    () => new Set(dayItems.flatMap((item) => (item.placeId ? [item.placeId] : []))),
+    [dayItems],
+  )
+
+  /** Which events are on *any* day, so Explore can mark them as already planned. */
+  const scheduledEventIds = useMemo(
+    () => new Set(dayItems.flatMap((item) => (item.eventId ? [item.eventId] : []))),
     [dayItems],
   )
 
@@ -219,26 +249,35 @@ export function useAppState() {
   const logout = useCallback(async () => {
     await api.logout()
     setUser(null)
-    setView('today')
+    // Back to Today, since Saved and the planner both require an account.
+    router.update({ section: 'today', detail: null })
     showToast('Signed out.')
-  }, [showToast])
+  }, [showToast, router])
 
   /* ---------------------------------------------------------------------- */
   /* Day actions                                                            */
   /* ---------------------------------------------------------------------- */
 
+  /** How long a scheduled item occupies, whichever kind it is. */
+  const durationOf = useCallback(
+    (item: DayItem): number | null => {
+      if (item.placeId) return placeById.get(item.placeId)?.durationMin ?? null
+      if (item.eventId) return eventById.get(item.eventId)?.durationMin ?? null
+      return null
+    },
+    [placeById, eventById],
+  )
+
   const occupied = useMemo<Placed[]>(
     () =>
       dayItems
         .map((item) => {
-          const place = placeById.get(item.placeId)
-          return place
-            ? { start: item.startMin, end: item.startMin + place.durationMin }
-            : null
+          const duration = durationOf(item)
+          return duration === null ? null : { start: item.startMin, end: item.startMin + duration }
         })
         .filter((range): range is Placed => range !== null)
         .sort((a, b) => a.start - b.start),
-    [dayItems, placeById],
+    [dayItems, durationOf],
   )
 
   /** Earliest opening that fits, preferring daytime windows. */
@@ -271,7 +310,7 @@ export function useAppState() {
       }
 
       try {
-        await api.addToDay(place.id, start)
+        await api.addToDay(place.id, start, date)
         await loadUserData()
         showToast(`Added “${place.name}” to your day.`)
       } catch (error) {
@@ -281,7 +320,7 @@ export function useAppState() {
         )
       }
     },
-    [user, findSlot, loadUserData, showToast],
+    [user, findSlot, loadUserData, showToast, date],
   )
 
   const removeFromDay = useCallback(
@@ -300,12 +339,12 @@ export function useAppState() {
   const moveInDay = useCallback(
     async (itemId: string, deltaMin: number) => {
       const item = dayItems.find((entry) => entry.id === itemId)
-      const place = item ? placeById.get(item.placeId) : undefined
-      if (!item || !place) return
+      const duration = item ? durationOf(item) : null
+      if (!item || duration === null) return
 
       const nextStart = item.startMin + deltaMin
 
-      if (nextStart < DAY_START_MIN || nextStart + place.durationMin > DAY_END_MIN) {
+      if (nextStart < DAY_START_MIN || nextStart + duration > DAY_END_MIN) {
         showToast('That would push it outside the day.', 'warning')
         return
       }
@@ -318,14 +357,16 @@ export function useAppState() {
       const others = dayItems
         .filter((entry) => entry.id !== itemId)
         .map((entry) => {
-          const other = placeById.get(entry.placeId)
-          return other ? { start: entry.startMin, end: entry.startMin + other.durationMin } : null
+          const otherDuration = durationOf(entry)
+          return otherDuration === null
+            ? null
+            : { start: entry.startMin, end: entry.startMin + otherDuration }
         })
         .filter((range): range is Placed => range !== null)
 
       // A deliberate nudge only needs to avoid a real overlap; the 15-minute
       // buffer is for automatic placement.
-      if (!fitsAt(nextStart, place.durationMin, others, 0)) {
+      if (!fitsAt(nextStart, duration, others, 0)) {
         showToast('That would run into something else.', 'warning')
         return
       }
@@ -337,18 +378,74 @@ export function useAppState() {
         showToast('Could not move that.', 'warning')
       }
     },
-    [dayItems, placeById, loadUserData, showToast],
+    [dayItems, durationOf, loadUserData, showToast],
+  )
+
+  /**
+   * Events land on their own date at their own start time — unlike a place, a
+   * fixture happens when it happens, so `findSlot` doesn't apply. If that clashes
+   * with something already planned, it is nudged to the next opening rather than
+   * silently double-booking.
+   */
+  const addEventToDay = useCallback(
+    async (event: EventItem) => {
+      if (!user) {
+        showToast('Sign in to plan your day.', 'warning')
+        return
+      }
+
+      const snapshot = toSnapshot(event)
+      const preferred = snapshot.startMinutes
+
+      // Occupancy is only known for the day currently loaded.
+      const sameDay = event.date === date
+      const ranges = sameDay ? occupied : []
+
+      let start = preferred ?? 12 * 60
+      if (!fitsAt(start, snapshot.durationMin, ranges, 0)) {
+        let bumped: number | null = null
+        for (let candidate = start; candidate <= DAY_END_MIN; candidate += SLOT_STEP_MIN) {
+          if (fitsAt(candidate, snapshot.durationMin, ranges)) {
+            bumped = candidate
+            break
+          }
+        }
+        if (bumped === null) {
+          showToast('That day is full — try removing something first.', 'warning')
+          return
+        }
+        start = bumped
+      }
+
+      try {
+        await api.addEventToDay(snapshot, start, event.date)
+
+        // Jump to the day it landed on; otherwise the confirmation is invisible.
+        if (!sameDay) router.update({ section: 'today', date: event.date })
+        else await loadUserData()
+
+        showToast(`Added “${event.name}” to ${describeDateInline(event.date)}.`)
+      } catch (error) {
+        showToast(
+          error instanceof ApiError ? error.message : 'Could not add that event.',
+          'warning',
+        )
+      }
+    },
+    [user, date, occupied, loadUserData, showToast, router],
   )
 
   const clearDay = useCallback(async () => {
     try {
-      await api.clearDay()
+      await api.clearDay(date)
       await loadUserData()
       showToast('Cleared the day. Blank slate.')
     } catch {
       showToast('Could not clear the day.', 'warning')
     }
-  }, [loadUserData, showToast])
+    // `date` matters: without it this closes over whichever day was showing when
+    // the callback was created, and clears that one instead of the current one.
+  }, [loadUserData, showToast, date])
 
   /* ---------------------------------------------------------------------- */
   /* Saved                                                                  */
@@ -391,8 +488,13 @@ export function useAppState() {
   )
 
   return {
-    view,
-    setView,
+    /** Where we are, and how to move — both straight from the URL. */
+    route: router.route,
+    router,
+    date,
+    setDate: (next: string) => router.update({ section: 'today', date: next }),
+    setView: (section: 'today' | 'explore' | 'escapes' | 'saved') => router.update({ section }),
+    openDetail: (id: string | null) => router.update({ detail: id }),
 
     user,
     authStatus,
@@ -414,12 +516,18 @@ export function useAppState() {
     reloadNearby: loadNearby,
 
     dayItems,
+    dayEvents,
     savedIds,
     savedPlaces,
+    savedEvents,
     placeById,
+    eventById,
     scheduledPlaceIds,
+    scheduledEventIds,
+    durationOf,
 
     addToDay,
+    addEventToDay,
     removeFromDay,
     moveInDay,
     clearDay,

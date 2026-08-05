@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import type { DayItem, Place } from '@/lib/api'
+import type { DayItem, Place, ScheduledEvent } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
 import { formatDistance, formatDuration, formatTime, pluralize } from '@/lib/format'
 import { cx } from '@/lib/cx'
+import { describeDate, describeDateInline, shiftDate, todayISO } from '@/lib/router'
 import { DAY_END_MIN, DAY_START_MIN, type AppState } from '@/lib/useAppState'
 import { AuthPanel } from '@/components/AuthPanel'
 import { ClockIcon, PinIcon, TrashIcon, XIcon } from '@/components/icons'
@@ -19,10 +20,73 @@ const STRIPE: Record<string, string> = {
   lagoon: 'bg-lagoon-300',
 }
 
-interface Resolved {
+/**
+ * A scheduled item flattened into what the timeline draws, so the row component
+ * doesn't have to branch on place-versus-event in six places.
+ */
+interface Entry {
   item: DayItem
-  place: Place
+  startMin: number
   endMin: number
+  durationMin: number
+  title: string
+  where: string | null
+  kindLabel: string
+  kindEmoji: string
+  hue: string
+  detail: string | null
+  /** Places open the detail panel; events link out to the provider. */
+  placeId: string | null
+  href: string | null
+}
+
+function priceLabel(event: ScheduledEvent): string | null {
+  const { priceMin, priceMax, currency } = event
+  if (priceMin === null && priceMax === null) return null
+  const symbol = currency === 'USD' ? '$' : currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : ''
+  const round = (value: number) => (Number.isInteger(value) ? value : value.toFixed(2))
+  if (priceMin !== null && priceMax !== null && priceMin !== priceMax) {
+    return `${symbol}${round(priceMin)}–${symbol}${round(priceMax)}`
+  }
+  const single = priceMin ?? priceMax
+  return single === null ? null : `from ${symbol}${round(single)}`
+}
+
+function entryForPlace(item: DayItem, place: Place): Entry {
+  const category = CATEGORY_META[place.category]
+  return {
+    item,
+    startMin: item.startMin,
+    endMin: item.startMin + place.durationMin,
+    durationMin: place.durationMin,
+    title: place.name,
+    where: [place.neighborhood, place.distanceKm !== undefined && formatDistance(place.distanceKm)]
+      .filter(Boolean)
+      .join(' · ') || null,
+    kindLabel: category.label,
+    kindEmoji: category.emoji,
+    hue: category.hue,
+    detail: place.openingHours,
+    placeId: place.id,
+    href: null,
+  }
+}
+
+function entryForEvent(item: DayItem, event: ScheduledEvent): Entry {
+  return {
+    item,
+    startMin: item.startMin,
+    endMin: item.startMin + event.durationMin,
+    durationMin: event.durationMin,
+    title: event.name,
+    where: [event.venueName, event.city].filter(Boolean).join(' · ') || null,
+    kindLabel: event.genre ?? event.segment ?? 'Event',
+    kindEmoji: event.segment === 'Sports' ? '🏟️' : '🎟️',
+    hue: 'bloom',
+    detail: priceLabel(event),
+    placeId: null,
+    href: event.url,
+  }
 }
 
 function useCurrentMinute() {
@@ -97,23 +161,75 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 /* -------------------------------------------------------------------------- */
+/* Date switcher                                                               */
+/* -------------------------------------------------------------------------- */
+
+function DateNav({ date, onChange }: { date: string; onChange: (next: string) => void }) {
+  const today = todayISO()
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 rounded-full bg-shell p-1 ring-1 ring-ink-200 ring-inset shadow-low">
+        <button
+          type="button"
+          onClick={() => onChange(shiftDate(date, -1))}
+          aria-label="Previous day"
+          className="grid size-8 place-items-center rounded-full text-ink-700 transition-colors hover:bg-sun-100 hover:text-ink-900"
+        >
+          <span aria-hidden>←</span>
+        </button>
+        <span className="min-w-32 px-2 text-center text-sm font-semibold text-ink-900">
+          {describeDate(date)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(shiftDate(date, 1))}
+          aria-label="Next day"
+          className="grid size-8 place-items-center rounded-full text-ink-700 transition-colors hover:bg-sun-100 hover:text-ink-900"
+        >
+          <span aria-hidden>→</span>
+        </button>
+      </div>
+
+      {date !== today && (
+        <Button variant="ghost" size="sm" onClick={() => onChange(today)}>
+          Jump to today
+        </Button>
+      )}
+
+      {/* A native picker beats reinventing a calendar. */}
+      <label className="flex items-center gap-2">
+        <span className="sr-only">Pick a date</span>
+        <input
+          type="date"
+          value={date}
+          onChange={(event) => event.target.value && onChange(event.target.value)}
+          className="h-9 rounded-full bg-shell px-3 text-sm text-ink-900 ring-1 ring-ink-200 ring-inset shadow-low transition hover:ring-sun-300 focus:ring-2 focus:ring-bloom-400 focus:outline-none"
+        />
+      </label>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /* Timeline item                                                               */
 /* -------------------------------------------------------------------------- */
 
 function TimelineItem({
-  resolved,
+  entry,
   onRemove,
   onMove,
+  onOpen,
   isNow,
 }: {
-  resolved: Resolved
+  entry: Entry
   onRemove: () => void
   onMove: (delta: number) => void
+  onOpen: () => void
   isNow: boolean
 }) {
-  const { item, place, endMin } = resolved
-  const category = CATEGORY_META[place.category]
-  const height = Math.max(place.durationMin * PX_PER_MIN, 72)
+  const height = Math.max(entry.durationMin * PX_PER_MIN, 72)
+  const interactive = entry.placeId !== null
 
   return (
     <motion.li
@@ -121,7 +237,7 @@ function TimelineItem({
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-      style={{ top: (item.startMin - RAIL_START) * PX_PER_MIN, height }}
+      style={{ top: (entry.startMin - RAIL_START) * PX_PER_MIN, height }}
       className="absolute inset-x-0 flex"
     >
       <div
@@ -132,14 +248,14 @@ function TimelineItem({
         )}
       >
         <span
-          className={cx('absolute inset-y-0 left-0 w-1.5', STRIPE[category.hue] ?? 'bg-sun-400')}
+          className={cx('absolute inset-y-0 left-0 w-1.5', STRIPE[entry.hue] ?? 'bg-sun-400')}
           aria-hidden
         />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <p className="font-display text-sm font-semibold text-ink-900 tabular-nums">
-              {formatTime(item.startMin)} – {formatTime(endMin)}
+              {formatTime(entry.startMin)} – {formatTime(entry.endMin)}
             </p>
             {isNow && (
               <Badge tone="bloom" className="text-[0.625rem]">
@@ -148,35 +264,53 @@ function TimelineItem({
             )}
           </div>
 
-          <h3 className="mt-0.5 truncate text-[0.9375rem] font-semibold text-ink-900">
-            {place.name}
-          </h3>
+          {/* Places open their detail panel; events aren't places, so they link out. */}
+          {interactive ? (
+            <button
+              type="button"
+              onClick={onOpen}
+              className="mt-0.5 block max-w-full truncate text-left text-[0.9375rem] font-semibold text-ink-900 hover:text-bloom-600 hover:underline"
+            >
+              {entry.title}
+            </button>
+          ) : (
+            <h3 className="mt-0.5 truncate text-[0.9375rem] font-semibold text-ink-900">
+              {entry.title}
+            </h3>
+          )}
 
-          {height > 92 && (place.neighborhood || place.distanceKm !== undefined) && (
+          {height > 92 && entry.where && (
             <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-ink-700">
               <PinIcon className="size-3.5 shrink-0 text-bloom-400" />
-              {[place.neighborhood, place.distanceKm !== undefined && formatDistance(place.distanceKm)]
-                .filter(Boolean)
-                .join(' · ')}
+              {entry.where}
             </p>
           )}
 
           {height > 130 && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-700">
-              <Badge tone="sun">
-                <span aria-hidden>{category.emoji}</span>
-                {category.label}
+              <Badge tone={entry.hue === 'bloom' ? 'bloom' : 'sun'}>
+                <span aria-hidden>{entry.kindEmoji}</span>
+                {entry.kindLabel}
               </Badge>
-              {place.openingHours && <span className="truncate">· {place.openingHours}</span>}
+              {entry.detail && <span className="truncate">{entry.detail}</span>}
             </div>
           )}
         </div>
 
         <div className="hidden shrink-0 flex-col items-end justify-center gap-0.5 pr-1 text-right sm:flex">
           <span className="font-display text-base font-semibold text-ink-900">
-            ~{formatDuration(place.durationMin)}
+            ~{formatDuration(entry.durationMin)}
           </span>
-          {place.fee === false && <span className="text-xs text-lagoon-600">free</span>}
+          {entry.href && (
+            <a
+              href={entry.href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-xs font-medium text-bloom-600 hover:underline"
+            >
+              Details
+            </a>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
@@ -184,7 +318,7 @@ function TimelineItem({
             <button
               type="button"
               onClick={() => onMove(-30)}
-              aria-label={`Move ${place.name} 30 minutes earlier`}
+              aria-label={`Move ${entry.title} 30 minutes earlier`}
               className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-sun-100 hover:text-ink-900"
             >
               <span aria-hidden className="text-sm leading-none">
@@ -194,7 +328,7 @@ function TimelineItem({
             <button
               type="button"
               onClick={() => onMove(30)}
-              aria-label={`Move ${place.name} 30 minutes later`}
+              aria-label={`Move ${entry.title} 30 minutes later`}
               className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-sun-100 hover:text-ink-900"
             >
               <span aria-hidden className="text-sm leading-none">
@@ -205,7 +339,7 @@ function TimelineItem({
           <button
             type="button"
             onClick={onRemove}
-            aria-label={`Remove ${place.name} from your day`}
+            aria-label={`Remove ${entry.title} from your day`}
             className="grid size-7 place-items-center rounded-full text-ink-500 transition-colors hover:bg-bloom-100 hover:text-bloom-600"
           >
             <TrashIcon className="size-4" />
@@ -226,47 +360,57 @@ export function Today({ state }: { state: AppState }) {
     authStatus,
     dayItems,
     placeById,
+    eventById,
     removeFromDay,
     moveInDay,
     clearDay,
     setView,
+    setDate,
+    openDetail,
+    date,
     locationLabel,
   } = state
   const currentMinute = useCurrentMinute()
+  const isToday = date === todayISO()
 
-  const resolved = useMemo<Resolved[]>(
+  const entries = useMemo<Entry[]>(
     () =>
       dayItems
         .map((item) => {
-          const place = placeById.get(item.placeId)
-          return place ? { item, place, endMin: item.startMin + place.durationMin } : null
+          if (item.placeId) {
+            const place = placeById.get(item.placeId)
+            return place ? entryForPlace(item, place) : null
+          }
+          if (item.eventId) {
+            const event = eventById.get(item.eventId)
+            return event ? entryForEvent(item, event) : null
+          }
+          return null
         })
-        .filter((entry): entry is Resolved => entry !== null)
-        .sort((a, b) => a.item.startMin - b.item.startMin),
-    [dayItems, placeById],
+        .filter((entry): entry is Entry => entry !== null)
+        .sort((a, b) => a.startMin - b.startMin),
+    [dayItems, placeById, eventById],
   )
 
   const totals = useMemo(() => {
-    const bookedMin = resolved.reduce((sum, entry) => sum + entry.place.durationMin, 0)
-    const freeKnown = resolved.filter((entry) => entry.place.fee === false).length
-    return { bookedMin, freeKnown }
-  }, [resolved])
+    const bookedMin = entries.reduce((sum, entry) => sum + entry.durationMin, 0)
+    const eventCount = entries.filter((entry) => entry.placeId === null).length
+    return { bookedMin, eventCount }
+  }, [entries])
 
   const gaps = useMemo(() => {
     const found: Array<{ start: number; end: number }> = []
     let cursor = RAIL_START
 
-    for (const entry of resolved) {
-      if (entry.item.startMin - cursor >= 45) {
-        found.push({ start: cursor, end: entry.item.startMin })
-      }
+    for (const entry of entries) {
+      if (entry.startMin - cursor >= 45) found.push({ start: cursor, end: entry.startMin })
       cursor = Math.max(cursor, entry.endMin)
     }
-    if (RAIL_END - cursor >= 90 && resolved.length > 0) {
+    if (RAIL_END - cursor >= 90 && entries.length > 0) {
       found.push({ start: cursor, end: RAIL_END })
     }
     return found
-  }, [resolved])
+  }, [entries])
 
   const hours = useMemo(() => {
     const list: number[] = []
@@ -275,15 +419,13 @@ export function Today({ state }: { state: AppState }) {
   }, [])
 
   const railHeight = (RAIL_END - RAIL_START) * PX_PER_MIN
-  const nowInsideItem = resolved.some(
-    (entry) => currentMinute >= entry.item.startMin && currentMinute < entry.endMin,
+
+  // The now-marker only makes sense on today, and only outside an item's own card.
+  const nowInsideItem = entries.some(
+    (entry) => currentMinute >= entry.startMin && currentMinute < entry.endMin,
   )
-  const nowVisible = currentMinute >= RAIL_START && currentMinute <= RAIL_END && !nowInsideItem
-  const dateLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
+  const nowVisible =
+    isToday && currentMinute >= RAIL_START && currentMinute <= RAIL_END && !nowInsideItem
 
   if (authStatus === 'loading') {
     return <div className="h-96 animate-pulse rounded-dune bg-sand/60" />
@@ -299,7 +441,7 @@ export function Today({ state }: { state: AppState }) {
           />
           <div className="relative">
             <p className="text-xs font-semibold tracking-[0.16em] text-bloom-500 uppercase">
-              {dateLabel}
+              {describeDate(date)}
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-ink-900 sm:text-[2.75rem] sm:leading-[1.1]">
               Your day, <span className="text-sunrise">in the sun</span>
@@ -338,50 +480,60 @@ export function Today({ state }: { state: AppState }) {
         />
 
         <div className="relative flex flex-wrap items-start justify-between gap-6">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold tracking-[0.16em] text-bloom-500 uppercase">
-              {dateLabel}
+              {describeDate(date)}
               {locationLabel && ` · ${locationLabel}`}
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold text-ink-900 sm:text-[2.75rem] sm:leading-[1.1]">
-              {greetingFor(currentMinute)},{' '}
-              <span className="text-sunrise">{user.displayName}</span>
+              {isToday ? (
+                <>
+                  {greetingFor(currentMinute)},{' '}
+                  <span className="text-sunrise">{user.displayName}</span>
+                </>
+              ) : (
+                <>
+                  Planning <span className="text-sunrise">{describeDateInline(date)}</span>
+                </>
+              )}
             </h1>
             <p className="mt-3 max-w-md text-sm text-ink-700 sm:text-base">
-              {resolved.length === 0
+              {entries.length === 0
                 ? 'Nothing planned yet. Go find something worth leaving the house for.'
-                : `${resolved.length} ${pluralize(resolved.length, 'thing')} lined up, about ${formatDuration(
+                : `${entries.length} ${pluralize(entries.length, 'thing')} lined up, about ${formatDuration(
                     totals.bookedMin,
-                  )} of it.`}
+                  )} of it${totals.eventCount > 0 ? `, including ${totals.eventCount} ticketed` : ''}.`}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
               <Button onClick={() => setView('explore')}>Find something to do</Button>
-              {resolved.length > 0 && (
+              {entries.length > 0 && (
                 <Button variant="ghost" onClick={() => void clearDay()}>
                   <XIcon className="size-4" />
-                  Clear day
+                  Clear this day
                 </Button>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col items-center">
-            <SunArc minute={currentMinute} />
-            <p className="mt-1 text-xs font-medium text-ink-700 tabular-nums">
-              {formatTime(currentMinute)}
-            </p>
-          </div>
+          {isToday && (
+            <div className="flex flex-col items-center">
+              <SunArc minute={currentMinute} />
+              <p className="mt-1 text-xs font-medium text-ink-700 tabular-nums">
+                {formatTime(currentMinute)}
+              </p>
+            </div>
+          )}
         </div>
 
-        <dl className="relative mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat
-            label="Planned"
-            value={`${resolved.length}`}
-            hint={pluralize(resolved.length, 'place')}
-          />
+        <div className="relative mt-6">
+          <DateNav date={date} onChange={setDate} />
+        </div>
+
+        <dl className="relative mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat label="Planned" value={`${entries.length}`} hint={pluralize(entries.length, 'item')} />
           <Stat label="Time out" value={formatDuration(totals.bookedMin)} hint="estimated" />
-          <Stat label="Known free" value={`${totals.freeKnown}`} hint="no entry fee" />
+          <Stat label="Ticketed" value={`${totals.eventCount}`} hint="events" />
           <Stat
             label="Unplanned"
             value={formatDuration(Math.max(0, RAIL_END - RAIL_START - totals.bookedMin))}
@@ -393,7 +545,9 @@ export function Today({ state }: { state: AppState }) {
       <section>
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-semibold text-ink-900">Your day</h2>
+            <h2 className="text-2xl font-semibold text-ink-900">
+              {isToday ? 'Your day' : describeDate(date)}
+            </h2>
             <p className="mt-1.5 text-sm text-ink-700">
               Hover an item to nudge it half an hour either way, or drop it entirely.
             </p>
@@ -404,11 +558,11 @@ export function Today({ state }: { state: AppState }) {
           </Badge>
         </div>
 
-        {resolved.length === 0 ? (
+        {entries.length === 0 ? (
           <EmptyState
             emoji="🌻"
-            title="A completely open day"
-            description="That is either a problem or a luxury. Either way, Explore lists real places near you, closest first."
+            title={isToday ? 'A completely open day' : `Nothing planned for ${describeDateInline(date)}`}
+            description="Explore lists real places near you, closest first — and real fixtures you can drop straight onto a date."
             action={<Button onClick={() => setView('explore')}>Browse what's nearby</Button>}
           />
         ) : (
@@ -460,13 +614,16 @@ export function Today({ state }: { state: AppState }) {
               )}
 
               <ul className="absolute inset-0 z-10 list-none p-0">
-                {resolved.map((entry) => (
+                {entries.map((entry) => (
                   <TimelineItem
                     key={entry.item.id}
-                    resolved={entry}
-                    isNow={currentMinute >= entry.item.startMin && currentMinute < entry.endMin}
+                    entry={entry}
+                    isNow={
+                      isToday && currentMinute >= entry.startMin && currentMinute < entry.endMin
+                    }
                     onRemove={() => void removeFromDay(entry.item.id)}
                     onMove={(delta) => void moveInDay(entry.item.id, delta)}
+                    onOpen={() => entry.placeId && openDetail(entry.placeId)}
                   />
                 ))}
               </ul>

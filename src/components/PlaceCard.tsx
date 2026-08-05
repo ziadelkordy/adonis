@@ -22,6 +22,8 @@ interface PlaceCardProps {
   scheduled: boolean
   onToggleSaved: () => void
   onAdd: () => void
+  /** Opens the detail panel. */
+  onOpen: () => void
   index?: number
 }
 
@@ -31,6 +33,7 @@ export function PlaceCard({
   scheduled,
   onToggleSaved,
   onAdd,
+  onOpen,
   index = 0,
 }: PlaceCardProps) {
   const category = CATEGORY_META[place.category]
@@ -42,7 +45,12 @@ export function PlaceCard({
       transition={{ duration: 0.34, delay: Math.min(index * 0.03, 0.24), ease: [0.22, 1, 0.36, 1] }}
       className="group flex flex-col overflow-hidden rounded-shell bg-shell ring-1 ring-ink-200/70 ring-inset shadow-low transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-high"
     >
-      <div className="relative aspect-16/10 overflow-hidden">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`See details for ${place.name}`}
+        className="relative block aspect-16/10 w-full cursor-pointer overflow-hidden text-left"
+      >
         <Scene
           seed={seedFor(place.id)}
           variant={sceneVariantFor(category.hue)}
@@ -68,10 +76,14 @@ export function PlaceCard({
             </Badge>
           )}
         </div>
-      </div>
+      </button>
 
       <div className="flex flex-1 flex-col gap-2.5 p-4 sm:p-5">
-        <h3 className="text-[1.0625rem] leading-snug font-semibold text-ink-900">{place.name}</h3>
+        <h3 className="text-[1.0625rem] leading-snug font-semibold text-ink-900">
+          <button type="button" onClick={onOpen} className="text-left hover:text-bloom-600 hover:underline">
+            {place.name}
+          </button>
+        </h3>
 
         {(place.neighborhood || place.cuisine) && (
           <p className="flex items-center gap-1.5 text-sm text-ink-700">

@@ -1,3 +1,5 @@
+/* Before Tailwind, so our utilities can override Leaflet's defaults. */
+@import 'leaflet/dist/leaflet.css';
 @import 'tailwindcss';
 
 /* ==========================================================================

@@ -6,6 +6,7 @@ import { pluralize } from '@/lib/format'
 import type { Category } from '@/lib/types'
 import { RADIUS_OPTIONS, type AppState, type LoadStatus } from '@/lib/useAppState'
 import { EventCard } from '@/components/EventCard'
+import { MapView, type MapMarker } from '@/components/MapView'
 import { PlaceCard } from '@/components/PlaceCard'
 import { PinIcon, SparkleIcon, SunIcon, XIcon } from '@/components/icons'
 import { Badge, Button, Chip, EmptyState, SectionHeader } from '@/components/ui'
@@ -419,7 +420,13 @@ function EventsTab({ state }: { state: AppState }) {
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((event, index) => (
-            <EventCard key={event.id} event={event} index={index} />
+            <EventCard
+              key={event.id}
+              event={event}
+              index={index}
+              scheduled={state.scheduledEventIds.has(event.id)}
+              onAdd={() => void state.addEventToDay(event)}
+            />
           ))}
         </div>
       )}
@@ -445,8 +452,13 @@ export function Explore({ state }: { state: AppState }) {
     locationLabel,
   } = state
 
-  const [tab, setTab] = useState<Tab>('nearby')
-  const [query, setQuery] = useState('')
+  const { route, router } = state
+  const tab = route.tab
+  // Search lives in the URL too, so a filtered view can be shared.
+  const query = route.query
+  const setQuery = (next: string) =>
+    router.update({ section: 'explore', tab, query: next }, 'replace')
+
   const [categories, setCategories] = useState<Set<Category>>(new Set())
   const [freeOnly, setFreeOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('distance')
@@ -487,6 +499,18 @@ export function Explore({ state }: { state: AppState }) {
     return sorted
   }, [basePlaces, query, categories, freeOnly, sort])
 
+  const mapMarkers = useMemo<MapMarker[]>(
+    () =>
+      results.map((place) => ({
+        id: place.id,
+        lat: place.lat,
+        lon: place.lon,
+        label: place.name,
+        kind: 'place' as const,
+      })),
+    [results],
+  )
+
   const availableCategories = useMemo(() => {
     const counts = new Map<Category, number>()
     for (const place of basePlaces) {
@@ -516,8 +540,9 @@ export function Explore({ state }: { state: AppState }) {
    */
   const changeTab = (next: Tab) => {
     if (next === tab) return
-    setTab(next)
-    reset()
+    setCategories(new Set())
+    setFreeOnly(false)
+    router.update({ section: 'explore', tab: next, query: '' })
   }
 
   const HEADINGS: Record<Tab, { title: string; description: string }> = {
@@ -546,7 +571,35 @@ export function Explore({ state }: { state: AppState }) {
         description={HEADINGS[tab].description}
       />
 
-      <TabBar tab={tab} onChange={changeTab} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TabBar tab={tab} onChange={changeTab} />
+
+        {/* A location app should be able to show you a map. */}
+        {tab !== 'events' && (
+          <div
+            role="group"
+            aria-label="How to show results"
+            className="flex gap-1 rounded-full bg-sand/80 p-1 ring-1 ring-ink-200/70 ring-inset"
+          >
+            {(['grid', 'map'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={route.view === mode}
+                onClick={() => router.update({ section: 'explore', tab, view: mode })}
+                className={cx(
+                  'h-9 rounded-full px-4 text-sm font-medium capitalize transition-colors duration-200',
+                  route.view === mode
+                    ? 'bg-shell text-ink-900 shadow-low'
+                    : 'text-ink-500 hover:text-ink-800',
+                )}
+              >
+                {mode === 'grid' ? 'List' : 'Map'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <LocationBar state={state} showRadius={tab !== 'events'} />
 
@@ -680,7 +733,23 @@ export function Explore({ state }: { state: AppState }) {
        * Santa Monica places — the state is kept, just not displayed, so a failed
        * refetch can still fall back to it.
        */}
-      {placesStatus !== 'loading' && results.length > 0 && (
+      {placesStatus !== 'loading' && results.length > 0 && route.view === 'map' && (
+        <div className="space-y-3">
+          <MapView
+            center={state.coords}
+            markers={mapMarkers}
+            selectedId={route.detail}
+            onSelect={(id) => state.openDetail(id)}
+            className="h-[32rem] w-full overflow-hidden rounded-shell ring-1 ring-ink-200 ring-inset shadow-low"
+          />
+          <p className="text-xs text-ink-500">
+            Tap a pin to see the place. Scroll-zoom is off on purpose so the page still scrolls —
+            use the + / − controls.
+          </p>
+        </div>
+      )}
+
+      {placesStatus !== 'loading' && results.length > 0 && route.view === 'grid' && (
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {results.map((place, index) => (
             <PlaceCard
@@ -691,6 +760,7 @@ export function Explore({ state }: { state: AppState }) {
               scheduled={scheduledPlaceIds.has(place.id)}
               onToggleSaved={() => void toggleSaved(place.id)}
               onAdd={() => void addToDay(place)}
+              onOpen={() => state.openDetail(place.id)}
             />
           ))}
         </div>

@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import type { EventItem } from '@/lib/api'
 import { formatDistance } from '@/lib/format'
 import { Scene } from './Scene'
-import { PinIcon, ClockIcon } from './icons'
+import { CheckIcon, ClockIcon, PinIcon, PlusIcon } from './icons'
 import { Badge } from './ui'
 
 /** Stable small integer from the event id, for the fallback artwork. */
@@ -50,7 +50,17 @@ function formatPriceRange(event: EventItem): string | null {
   return single === null ? null : `from ${unit}${round(single)}`
 }
 
-export function EventCard({ event, index = 0 }: { event: EventItem; index?: number }) {
+export function EventCard({
+  event,
+  index = 0,
+  scheduled = false,
+  onAdd,
+}: {
+  event: EventItem
+  index?: number
+  scheduled?: boolean
+  onAdd?: () => void
+}) {
   const date = formatDateParts(event.date)
   const price = formatPriceRange(event)
 
@@ -146,16 +156,35 @@ export function EventCard({ event, index = 0 }: { event: EventItem; index?: numb
             )}
           </div>
 
-          {/* Only ticketed listings actually lead to a checkout — a fixture link
-              goes to a schedule page, so calling it "Tickets" would mislead. */}
-          <a
+          <div className="flex shrink-0 items-center gap-2">
+            {onAdd &&
+              (scheduled ? (
+                <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-lagoon-100 px-3 text-[0.8125rem] font-medium whitespace-nowrap text-lagoon-600">
+                  <CheckIcon className="size-4 shrink-0" />
+                  Planned
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onAdd}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-shell px-3 text-[0.8125rem] font-medium whitespace-nowrap text-ink-900 ring-1 ring-ink-200 ring-inset transition hover:bg-sun-50 hover:ring-sun-300"
+                >
+                  <PlusIcon className="size-4" />
+                  Add
+                </button>
+              ))}
+
+            {/* Only ticketed listings actually lead to a checkout — a fixture link
+                goes to a schedule page, so calling it "Tickets" would mislead. */}
+            <a
             href={event.url}
             target="_blank"
             rel="noreferrer noopener"
             className="inline-flex h-8 shrink-0 items-center rounded-full bg-sun-400 px-3.5 text-[0.8125rem] font-medium whitespace-nowrap text-ink-900 shadow-low transition-all duration-200 hover:bg-sun-300 hover:shadow-glow-sun"
           >
-            {event.source === 'ticketmaster' ? 'Tickets' : 'Match details'}
-          </a>
+              {event.source === 'ticketmaster' ? 'Tickets' : 'Details'}
+            </a>
+          </div>
         </div>
       </div>
     </motion.article>

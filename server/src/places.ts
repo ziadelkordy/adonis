@@ -202,14 +202,31 @@ function categoryFor(tags: Record<string, string>): Category | null {
   return null
 }
 
+/*
+ * Metres per degree of latitude, taken at its *smallest* (at the equator; it
+ * grows to ~111,694 at the poles). Deliberately conservative: dividing by a
+ * smaller number yields a slightly larger box, and the box erring outwards is
+ * free — the true circular radius is enforced afterwards with haversine — whereas
+ * erring inwards silently drops places that are genuinely within range.
+ *
+ * The earlier value here, 111,320, is the figure for *longitude* at the equator.
+ * Used for latitude it made the box ~0.1% too small, clipping results in the last
+ * couple of metres of the radius.
+ */
+const MIN_METERS_PER_DEG_LAT = 110_574
+
+/** A little extra, so floating-point error can't nibble at the edges either. */
+const BBOX_PAD = 1.01
+
 export function boundingBox(
   lat: number,
   lon: number,
   radiusM: number,
 ): { south: number; west: number; north: number; east: number } {
-  const dLat = radiusM / 111_320
-  // Longitude degrees shrink towards the poles.
-  const dLon = radiusM / (111_320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01))
+  const padded = radiusM * BBOX_PAD
+  const dLat = padded / MIN_METERS_PER_DEG_LAT
+  // Longitude degrees shrink towards the poles; the floor keeps this finite there.
+  const dLon = padded / (MIN_METERS_PER_DEG_LAT * Math.max(Math.cos((lat * Math.PI) / 180), 0.01))
   return { south: lat - dLat, west: lon - dLon, north: lat + dLat, east: lon + dLon }
 }
 
@@ -360,8 +377,10 @@ export async function geocodePlace(query: string): Promise<{ lat: number; lon: n
  * area already cached.
  *
  * v2: rides (attraction=*) and roadside markers excluded.
+ * v3: bounding box widened — the previous one was ~0.1% too small and clipped
+ *     places in the outermost metres of the radius.
  */
-const NORMALIZER_VERSION = 2
+const NORMALIZER_VERSION = 3
 
 /** Cache buckets are ~1km, which is granular enough without thrashing the cache. */
 function cacheKey(lat: number, lon: number, radiusM: number, categories: Category[]): string {

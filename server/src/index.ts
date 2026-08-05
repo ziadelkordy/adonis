@@ -13,6 +13,8 @@ import {
   verifyPassword,
 } from './auth.ts'
 import { assertDatabaseReachable, sql } from './db.ts'
+import { checkRateLimit } from './rateLimit.ts'
+import { loadEvents, parseEventSnapshot, upsertEvent } from './schedule.ts'
 import { fetchEventsBundle, isEventsConfigured } from './events.ts'
 import {
   CATEGORIES,
@@ -86,7 +88,27 @@ function issueSession(c: Context, token: string): void {
   })
 }
 
+/*
+ * Credential endpoints are rate limited per IP. Login is the one worth attacking,
+ * and scrypt verification is intentionally slow, so a flood costs CPU as well as
+ * risking a guessed password.
+ */
+const AUTH_LIMITS = { limit: 10, windowMs: 10 * 60 * 1000 }
+
+function tooManyAttempts(c: Context, name: string) {
+  const result = checkRateLimit(c, { name, ...AUTH_LIMITS })
+  if (result.ok) return null
+  return c.json(
+    { error: `Too many attempts. Try again in ${result.retryAfterSeconds} seconds.` },
+    429,
+    { 'Retry-After': String(result.retryAfterSeconds) },
+  )
+}
+
 app.post('/api/auth/signup', async (c) => {
+  const limited = tooManyAttempts(c, 'signup')
+  if (limited) return limited
+
   const body = await c.req.json().catch(() => null)
   if (!body || typeof body !== 'object') return c.json({ error: 'Invalid request body.' }, 400)
 
@@ -121,6 +143,9 @@ app.post('/api/auth/signup', async (c) => {
 })
 
 app.post('/api/auth/login', async (c) => {
+  const limited = tooManyAttempts(c, 'login')
+  if (limited) return limited
+
   const body = await c.req.json().catch(() => null)
   const { email, password } = (body ?? {}) as Record<string, unknown>
 
@@ -194,9 +219,10 @@ savedApp.get('/', async (c) => {
     SELECT item_id FROM saved_items WHERE user_id = ${user.id} ORDER BY saved_at DESC
   `
   const ids = rows.map((row) => row.item_id)
-  // Return the cached place records too, so the client can render saved places
-  // it hasn't otherwise loaded (e.g. straight after signing in).
-  return c.json({ ids, places: await loadPlaces(ids) })
+  // Return the cached records too, so the client can render saved items it hasn't
+  // otherwise loaded (e.g. straight after signing in).
+  const [places, events] = await Promise.all([loadPlaces(ids), loadEvents(ids)])
+  return c.json({ ids, places, events })
 })
 
 savedApp.put('/', async (c) => {
@@ -237,35 +263,67 @@ dayApp.get('/', async (c) => {
   const day = parseDay(c.req.query('day'))
   if (!day) return c.json({ error: 'Invalid day, expected YYYY-MM-DD.' }, 400)
 
-  const rows = await sql<{ id: string; place_id: string; start_min: number }[]>`
-    SELECT id, place_id, start_min
+  const rows = await sql<
+    { id: string; place_id: string | null; event_id: string | null; start_min: number }[]
+  >`
+    SELECT id, place_id, event_id, start_min
     FROM scheduled_items
     WHERE user_id = ${user.id} AND day = ${day}
     ORDER BY start_min
   `
 
-  const places = await loadPlaces(rows.map((row) => row.place_id))
+  const [places, events] = await Promise.all([
+    loadPlaces(rows.flatMap((row) => (row.place_id ? [row.place_id] : []))),
+    loadEvents(rows.flatMap((row) => (row.event_id ? [row.event_id] : []))),
+  ])
 
   return c.json({
     day,
-    items: rows.map((row) => ({ id: row.id, placeId: row.place_id, startMin: row.start_min })),
+    items: rows.map((row) => ({
+      id: row.id,
+      placeId: row.place_id,
+      eventId: row.event_id,
+      startMin: row.start_min,
+    })),
     places,
+    events,
   })
 })
 
 dayApp.post('/', async (c) => {
   const user = c.get('user')
   const body = await c.req.json().catch(() => null)
-  const { placeId, startMin, day: rawDay } = (body ?? {}) as Record<string, unknown>
+  const { placeId, startMin, day: rawDay, event } = (body ?? {}) as Record<string, unknown>
 
   const day = parseDay(typeof rawDay === 'string' ? rawDay : undefined)
   if (!day) return c.json({ error: 'Invalid day, expected YYYY-MM-DD.' }, 400)
 
-  if (typeof placeId !== 'string' || !placeId) {
-    return c.json({ error: 'placeId is required.' }, 400)
-  }
   if (typeof startMin !== 'number' || !Number.isInteger(startMin) || startMin < 0 || startMin > 1439) {
     return c.json({ error: 'startMin must be an integer between 0 and 1439.' }, 400)
+  }
+
+  /* An event: store the snapshot first so the foreign key resolves, and so the
+     plan survives the provider dropping the listing. */
+  if (event !== undefined) {
+    const snapshot = parseEventSnapshot(event)
+    if (!snapshot) return c.json({ error: 'That event is missing required details.' }, 400)
+
+    await upsertEvent(snapshot)
+
+    const rows = await sql<{ id: string }[]>`
+      INSERT INTO scheduled_items (user_id, event_id, day, start_min)
+      VALUES (${user.id}, ${snapshot.id}, ${day}, ${startMin})
+      ON CONFLICT (user_id, day, event_id, start_min) WHERE event_id IS NOT NULL DO NOTHING
+      RETURNING id
+    `
+    if (rows.length === 0) {
+      return c.json({ error: 'That event is already on your day at that time.' }, 409)
+    }
+    return c.json({ id: rows[0].id, eventId: snapshot.id, startMin, day }, 201)
+  }
+
+  if (typeof placeId !== 'string' || !placeId) {
+    return c.json({ error: 'placeId or event is required.' }, 400)
   }
 
   // scheduled_items.place_id is a foreign key, so the place must be cached first.
