@@ -579,7 +579,7 @@ export function Today({ state }: { state: AppState }) {
         <AuthPanel
           state={state}
           heading="Plan your day"
-          description="Your schedule and saved places live in Sundial's own database, tied to your account."
+          description="Your schedule and saved places live in Adonis's own database, tied to your account."
         />
       </div>
     )

@@ -1,4 +1,4 @@
-# Sundial
+# Adonis
 
 Plan your day, find things to do, and dream up your next escape. Sunny, beachy,
 flowery — yellow leads, pink accents, sea green keeps it from going saccharine.
@@ -294,8 +294,8 @@ or SameSite special-casing for the session cookie), one thing to deploy and one
 URL to share.
 
 ```bash
-docker build -t sundial .
-docker run -p 8787:8787 -e DATABASE_URL=... -e NODE_ENV=production sundial
+docker build -t adonis .
+docker run -p 8787:8787 -e DATABASE_URL=... -e NODE_ENV=production adonis
 ```
 
 `render.yaml` is a ready blueprint for the **web service only**. Migrations run on

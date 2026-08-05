@@ -22,7 +22,7 @@ export const FALLBACK_COORDS: Coords = { lat: 34.0195, lon: -118.4912, accuracyM
  * Remembers a refusal so we don't re-ask on every page load. Browsers suppress a
  * repeat prompt anyway once denied, so asking again just produces a silent failure.
  */
-const DENIED_KEY = 'sundial:geo-denied'
+const DENIED_KEY = 'adonis:geo-denied'
 
 function readDenied(): boolean {
   try {

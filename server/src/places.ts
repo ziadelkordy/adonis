@@ -1,7 +1,7 @@
 import { sql } from './db.ts'
 
 /** Identifies us to the free OSM services, as their usage policies require. */
-const USER_AGENT = 'Sundial/0.1 (personal project; local development)'
+const USER_AGENT = 'Adonis/0.1 (personal project; local development)'
 
 /*
  * Several Overpass endpoints, tried in order.

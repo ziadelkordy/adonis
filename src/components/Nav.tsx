@@ -188,7 +188,7 @@ export function Nav({
                 <span className="size-4 rounded-full bg-cream" />
               </span>
               <span className="font-display text-xl font-semibold tracking-tight text-ink-900">
-                Sundial
+                Adonis
               </span>
             </a>
 

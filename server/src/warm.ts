@@ -14,8 +14,8 @@ import { sql } from './db.ts'
  * 100M+ relevant OSM features, is roughly 150 GB. Caching the dozen places you and
  * your friends actually live is ~0.07 GB and takes minutes.
  *
- *   pnpm --filter @sundial/server warm                    # the built-in list
- *   pnpm --filter @sundial/server warm 51.5074 -0.1278 London
+ *   pnpm --filter @adonis/server warm                    # the built-in list
+ *   pnpm --filter @adonis/server warm 51.5074 -0.1278 London
  */
 
 interface Area {

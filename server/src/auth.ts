@@ -6,7 +6,7 @@ const scrypt = promisify(scryptCallback)
 
 const KEY_LENGTH = 64
 const SESSION_DAYS = 30
-export const SESSION_COOKIE = 'sundial_session'
+export const SESSION_COOKIE = 'adonis_session'
 
 /*
  * scrypt is used rather than bcrypt/argon2 purely because it ships in Node's

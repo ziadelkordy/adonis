@@ -337,7 +337,7 @@ function EventsTab({ state }: { state: AppState }) {
         <EmptyState
           emoji="🛰️"
           title="Working out which venues are near you"
-          description={`Sports schedules list a venue name but no coordinates, so Sundial is looking up ${venuesPending} of them in the background. Give it a moment and check again.`}
+          description={`Sports schedules list a venue name but no coordinates, so Adonis is looking up ${venuesPending} of them in the background. Give it a moment and check again.`}
           action={
             <Button onClick={() => setReload((value) => value + 1)}>
               <SparkleIcon className="size-4" />
@@ -708,7 +708,7 @@ export function Explore({ state }: { state: AppState }) {
           emoji="🛰️"
           title="This area hasn't been loaded yet"
           description={
-            "Sundial reads places from OpenStreetMap, and the public service it uses won't accept " +
+            "Adonis reads places from OpenStreetMap, and the public service it uses won't accept " +
             'requests from the server this app runs on. Areas that have been loaded before are ' +
             'served instantly from the database; new ones need warming up first. Somewhere already ' +
             `loaded will work right now.${placesError ? ` (${placesError})` : ''}`

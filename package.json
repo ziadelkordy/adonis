@@ -1,24 +1,24 @@
 {
-  "name": "sundial",
+  "name": "adonis",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "pnpm --filter @sundial/server dev",
+    "dev:api": "pnpm --filter @adonis/server dev",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:migrate": "pnpm --filter @sundial/server migrate",
-    "db:psql": "docker exec -it sundial-postgres psql -U sundial -d sundial",
+    "db:migrate": "pnpm --filter @adonis/server migrate",
+    "db:psql": "docker exec -it adonis-postgres psql -U adonis -d adonis",
     "setup": "pnpm install && pnpm db:up && pnpm db:migrate",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "type-check": "tsc -b && pnpm --filter @sundial/server type-check",
+    "type-check": "tsc -b && pnpm --filter @adonis/server type-check",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:all": "vitest run && pnpm --filter @sundial/server test",
-    "warm": "pnpm --filter @sundial/server warm"
+    "test:all": "vitest run && pnpm --filter @adonis/server test",
+    "warm": "pnpm --filter @adonis/server warm"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

@@ -576,8 +576,8 @@ await pruneExpiredSessions()
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(
     SERVE_STATIC
-      ? `Sundial listening on http://localhost:${info.port} (app + API)`
-      : `Sundial API listening on http://localhost:${info.port}`,
+      ? `Adonis listening on http://localhost:${info.port} (app + API)`
+      : `Adonis API listening on http://localhost:${info.port}`,
   )
   console.log(
     isEventsConfigured()

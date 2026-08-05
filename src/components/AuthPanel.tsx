@@ -129,7 +129,7 @@ export function AuthPanel({
       </form>
 
       <p className="mt-4 text-center text-xs text-ink-500">
-        Your day and saved places are stored on your own machine, in Sundial's database.
+        Your day and saved places are stored on your own machine, in Adonis's database.
       </p>
     </div>
   )

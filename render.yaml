@@ -16,7 +16,7 @@
 # wake, so the first visit after a quiet spell is slow.
 services:
   - type: web
-    name: sundial
+    name: adonis
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free

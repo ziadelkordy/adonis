@@ -1,4 +1,4 @@
--- Sundial schema.
+-- Adonis schema.
 -- Safe to run repeatedly: every statement is guarded.
 
 CREATE TABLE IF NOT EXISTS users (

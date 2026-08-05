@@ -96,7 +96,7 @@ export default function App() {
             </a>{' '}
             (ODbL). Fixtures from ESPN.
           </p>
-          <p>Your plans live in Sundial's own database</p>
+          <p>Your plans live in Adonis's own database</p>
         </div>
       </footer>
 

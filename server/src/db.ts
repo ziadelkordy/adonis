@@ -1,6 +1,6 @@
 import postgres from 'postgres'
 
-const DEFAULT_URL = 'postgres://sundial:sundial_dev@localhost:5433/sundial'
+const DEFAULT_URL = 'postgres://adonis:adonis_dev@localhost:5433/adonis'
 
 export const DATABASE_URL = process.env.DATABASE_URL ?? DEFAULT_URL
 

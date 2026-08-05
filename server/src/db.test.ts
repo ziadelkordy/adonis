@@ -7,10 +7,10 @@ import { sslSetting } from './db.ts'
  */
 describe('sslSetting', () => {
   it('stays plaintext for local development', () => {
-    expect(sslSetting('postgres://sundial:pw@localhost:5433/sundial')).toBe(false)
-    expect(sslSetting('postgres://sundial:pw@127.0.0.1:5433/sundial')).toBe(false)
+    expect(sslSetting('postgres://adonis:pw@localhost:5433/adonis')).toBe(false)
+    expect(sslSetting('postgres://adonis:pw@127.0.0.1:5433/adonis')).toBe(false)
     // How the container reaches a database on the host machine.
-    expect(sslSetting('postgres://sundial:pw@host.docker.internal:5433/sundial')).toBe(false)
+    expect(sslSetting('postgres://adonis:pw@host.docker.internal:5433/adonis')).toBe(false)
   })
 
   it('requires TLS when the connection string asks for it', () => {
@@ -29,7 +29,7 @@ describe('sslSetting', () => {
   })
 
   it('finds sslmode when it is not the first parameter', () => {
-    expect(sslSetting('postgres://u:p@host/db?application_name=sundial&sslmode=require')).toBe(
+    expect(sslSetting('postgres://u:p@host/db?application_name=adonis&sslmode=require')).toBe(
       'require',
     )
   })
