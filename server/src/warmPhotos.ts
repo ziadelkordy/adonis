@@ -61,9 +61,33 @@ console.log('Most will find nothing; that is expected and gets cached so it is a
 const CHUNK = 25
 let found = 0
 
+/*
+ * A full run takes hours, and the database sleeps when idle — a managed Postgres
+ * that auto-suspends will drop or refuse a connection at some point across that
+ * span. An earlier run died outright on a single CONNECT_TIMEOUT six per cent in.
+ * Waking the instance takes a few seconds, so a short backoff clears it; only a
+ * chunk that fails repeatedly is skipped, and it is left unrecorded so the next
+ * run picks it up again.
+ */
+async function resolveWithRetry(chunk: Row[]): Promise<number> {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      return await resolvePhotos(chunk)
+    } catch (error) {
+      if (attempt === 4) {
+        console.warn(`  ! skipping ${chunk.length} places after 4 attempts:`, error)
+        return 0
+      }
+      const waitMs = 2000 * attempt
+      console.warn(`  … database unavailable, retrying in ${waitMs / 1000}s`)
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
+  }
+  return 0
+}
+
 for (let index = 0; index < rows.length; index += CHUNK) {
-  const chunk = rows.slice(index, index + CHUNK)
-  found += await resolvePhotos(chunk)
+  found += await resolveWithRetry(rows.slice(index, index + CHUNK))
 
   const done = Math.min(index + CHUNK, rows.length)
   const pct = Math.round((done / rows.length) * 100)
