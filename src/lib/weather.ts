@@ -1,29 +1,22 @@
 /*
- * Weather for a planned day, from Open-Meteo.
+ * Weather from Open-Meteo, fetched by the browser rather than by our server.
  *
- * Chosen because it needs no key at all, which matters here: the ticketing
- * integration already sits switched off waiting for someone to register for one,
- * and a day planner that cannot say whether it will rain is missing something far
- * more basic than concert listings.
+ * This started out as a server route and had to move. Open-Meteo rate-limits by
+ * IP, and a shared datacentre address is already over the line: every request from
+ * the deployed service came back 429, four attempts in a row, while the same call
+ * from a laptop returned 200 every time. Caching cannot fix a first request that
+ * never succeeds.
  *
- * Both temperature scales are returned rather than picking one. Guessing from
- * coordinates gets it wrong for anyone travelling, and a unit toggle is a setting
- * to build, store and forget — sending two numbers costs nothing and lets the UI
- * decide.
+ * Open-Meteo sends `access-control-allow-origin: *`, so the browser can ask
+ * directly — and then each visitor spends their own residential IP's budget, which
+ * is how the service expects to be used. It also removes a hop, a cache and a
+ * failure mode from the server entirely.
+ *
+ * No key, which is the reason this provider was chosen: the ticketing integration
+ * already sits switched off waiting for someone to register for one, and a day
+ * planner that cannot say whether it will rain is missing something more basic
+ * than concert listings.
  */
-
-/** Rounded to ~1km, so nearby requests share a cache entry. */
-function cacheKey(lat: number, lon: number): string {
-  return `${lat.toFixed(2)},${lon.toFixed(2)}`
-}
-
-/*
- * Forecasts are revised a few times a day, so a short TTL is plenty and keeps a
- * shared instance from re-fetching per browse. In memory rather than in Postgres:
- * it is cheap to refetch, worthless once stale, and not worth a migration.
- */
-const TTL_MS = 30 * 60 * 1000
-const cache = new Map<string, { at: number; value: Forecast }>()
 
 export interface DayWeather {
   /** YYYY-MM-DD in the location's own timezone. */
@@ -90,8 +83,7 @@ function toF(celsius: number): number {
 /** "2026-08-11T20:04" -> "20:04". Open-Meteo returns local time, not UTC. */
 function timeOnly(value: string | null | undefined): string | null {
   if (!value) return null
-  const parts = value.split('T')
-  return parts[1]?.slice(0, 5) ?? null
+  return value.split('T')[1]?.slice(0, 5) ?? null
 }
 
 interface OpenMeteoResponse {
@@ -115,28 +107,8 @@ interface OpenMeteoResponse {
 
 export class WeatherUnavailableError extends Error {}
 
-export async function fetchForecast(lat: number, lon: number): Promise<Forecast> {
-  const key = cacheKey(lat, lon)
-  const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value
-
-  const url =
-    'https://api.open-meteo.com/v1/forecast' +
-    `?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset' +
-    '&hourly=temperature_2m,precipitation_probability,weather_code' +
-    '&timezone=auto&forecast_days=7'
-
-  let payload: OpenMeteoResponse
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(12_000) })
-    if (!response.ok) throw new WeatherUnavailableError(`upstream returned ${response.status}`)
-    payload = (await response.json()) as OpenMeteoResponse
-  } catch (error) {
-    if (error instanceof WeatherUnavailableError) throw error
-    throw new WeatherUnavailableError('forecast service did not respond')
-  }
-
+/** Exported for tests: the mapping is the part worth pinning down. */
+export function parseForecast(payload: OpenMeteoResponse): Forecast {
   const daily = payload.daily
   if (!daily?.time?.length) throw new WeatherUnavailableError('forecast contained no days')
 
@@ -175,7 +147,24 @@ export async function fetchForecast(lat: number, lon: number): Promise<Forecast>
     })
   }
 
-  const forecast: Forecast = { timezone: payload.timezone ?? 'UTC', days, hours }
-  cache.set(key, { at: Date.now(), value: forecast })
-  return forecast
+  return { timezone: payload.timezone ?? 'UTC', days, hours }
+}
+
+export async function fetchForecast(lat: number, lon: number): Promise<Forecast> {
+  const url =
+    'https://api.open-meteo.com/v1/forecast' +
+    `?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset' +
+    '&hourly=temperature_2m,precipitation_probability,weather_code' +
+    '&timezone=auto&forecast_days=7'
+
+  let response: Response
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(12_000) })
+  } catch {
+    throw new WeatherUnavailableError('forecast service did not respond')
+  }
+  if (!response.ok) throw new WeatherUnavailableError(`upstream returned ${response.status}`)
+
+  return parseForecast((await response.json()) as OpenMeteoResponse)
 }

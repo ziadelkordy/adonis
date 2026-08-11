@@ -1,33 +1,7 @@
 import { useEffect, useState } from 'react'
-import { api } from './api'
+import { type DayWeather, type Forecast, fetchForecast } from './weather'
 
-export interface DayWeather {
-  date: string
-  code: number
-  label: string
-  emoji: string
-  highC: number
-  lowC: number
-  highF: number
-  lowF: number
-  rainChance: number
-  sunrise: string | null
-  sunset: string | null
-}
-
-export interface HourWeather {
-  hour: number
-  tempC: number
-  tempF: number
-  rainChance: number
-  code: number
-}
-
-export interface Forecast {
-  timezone: string
-  days: DayWeather[]
-  hours: Record<string, HourWeather[]>
-}
+export type { DayWeather, Forecast, HourWeather } from './weather'
 
 /**
  * The forecast for wherever the user is planning.
@@ -52,8 +26,7 @@ export function useForecast(lat: number, lon: number) {
   useEffect(() => {
     let cancelled = false
 
-    api
-      .weather(roundedLat, roundedLon)
+    fetchForecast(roundedLat, roundedLon)
       .then((result) => {
         if (!cancelled) setForecast(result)
       })

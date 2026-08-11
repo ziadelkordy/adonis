@@ -208,9 +208,6 @@ export const api = {
   events: (lat: number, lon: number, radiusM: number) =>
     request<EventsResponse>(`/events/nearby?lat=${lat}&lon=${lon}&radius=${radiusM}`),
 
-  weather: (lat: number, lon: number) =>
-    request<import('./useForecast').Forecast>(`/weather?lat=${lat}&lon=${lon}`),
-
   searchLocations: (query: string) =>
     request<{ matches: { name: string; label: string; lat: number; lon: number }[] }>(
       `/geo/search?q=${encodeURIComponent(query)}`,
