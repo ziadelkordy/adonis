@@ -463,10 +463,18 @@ export function topUpInBackground(subjects: Subject[]): void {
   })()
 }
 
-/** Attaches cached photos to places and quietly starts filling the gaps. */
-export async function withPhotos<T extends Subject>(
+/**
+ * Attaches cached photos to places and quietly starts filling the gaps.
+ *
+ * Also drops the raw OSM tag bag on the way out. It is kept in the database so a
+ * new field never requires refetching from an upstream the server cannot reach,
+ * but it is server-side working data — shipping a few dozen tags for each of
+ * several hundred places would multiply the response size for something no
+ * client reads.
+ */
+export async function withPhotos<T extends Subject & { tags?: unknown }>(
   places: T[],
-): Promise<(T & { photo: Photo | null })[]> {
+): Promise<(Omit<T, 'tags'> & { photo: Photo | null })[]> {
   let cached = new Map<string, Photo>()
   try {
     cached = await getCachedPhotos(places.map((place) => place.id))
@@ -475,5 +483,8 @@ export async function withPhotos<T extends Subject>(
     // A photo is decoration; failing to attach one must never fail the request.
     console.error('photo lookup failed:', error)
   }
-  return places.map((place) => ({ ...place, photo: cached.get(place.id) ?? null }))
+  return places.map((place) => {
+    const { tags: _unused, ...rest } = place
+    return { ...rest, photo: cached.get(place.id) ?? null }
+  })
 }

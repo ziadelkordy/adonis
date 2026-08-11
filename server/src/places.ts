@@ -154,6 +154,17 @@ export interface Place {
   fee: boolean | null
   cuisine: string | null
   durationMin: number
+  /*
+   * The raw OSM tags, kept verbatim.
+   *
+   * The column existed from the first migration and was never written, which
+   * turned out to matter: adding a street address later needed addr:housenumber
+   * and addr:street, and with nothing stored the only way to get them was to
+   * refetch every place from Overpass — which the deployed service cannot reach at
+   * all. Keeping the tags means the next field someone wants is a SQL query rather
+   * than a full refetch against an unreachable upstream.
+   */
+  tags: Record<string, string>
   /** Only present on responses derived from a user location. */
   distanceKm?: number
 }
@@ -318,6 +329,7 @@ function normalize(element: OverpassElement): Place | null {
     fee: tags.fee === 'yes' ? true : tags.fee === 'no' ? false : null,
     cuisine: tags.cuisine ?? null,
     durationMin: DEFAULT_DURATION_MIN[category],
+    tags,
   }
 }
 
@@ -498,10 +510,11 @@ export async function loadPlaces(ids: string[]): Promise<Place[]> {
       fee: boolean | null
       cuisine: string | null
       duration_min: number
+      tags: Record<string, string> | null
     }>
   >`
     SELECT id, name, category, lat, lon, neighborhood, opening_hours,
-           website, phone, fee, cuisine, duration_min
+           website, phone, fee, cuisine, duration_min, tags
     FROM places
     WHERE id = ANY(${ids})
   `
@@ -519,6 +532,8 @@ export async function loadPlaces(ids: string[]): Promise<Place[]> {
     fee: row.fee,
     cuisine: row.cuisine,
     durationMin: row.duration_min,
+    // Rows written before tags were persisted have none; treat as empty, not null.
+    tags: row.tags ?? {},
   }))
 }
 
@@ -538,6 +553,7 @@ async function upsertPlaces(places: Place[]): Promise<void> {
     fee: place.fee,
     cuisine: place.cuisine,
     duration_min: place.durationMin,
+    tags: sql.json(place.tags ?? {}),
   }))
 
   await sql`
@@ -554,6 +570,7 @@ async function upsertPlaces(places: Place[]): Promise<void> {
       fee = EXCLUDED.fee,
       cuisine = EXCLUDED.cuisine,
       duration_min = EXCLUDED.duration_min,
+      tags = EXCLUDED.tags,
       fetched_at = now()
   `
 }
