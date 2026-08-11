@@ -18,6 +18,7 @@ import {
   verifyPassword,
 } from './auth.ts'
 import { assertDatabaseReachable, sql } from './db.ts'
+import { photoAdmin } from './photoAdmin.ts'
 import { withPhotos } from './photos.ts'
 import { checkRateLimit } from './rateLimit.ts'
 import { loadEvents, parseEventSnapshot, upsertEvent } from './schedule.ts'
@@ -87,6 +88,12 @@ function parseDay(raw: string | undefined): string | null {
  * dependency belongs on its own endpoint, below.
  */
 app.get('/api/health', (c) => c.json({ ok: true }))
+
+/*
+ * Photo warming, driven over HTTPS. Mounted narrowly and token-guarded inside the
+ * sub-app, so it cannot widen the guard on any public route.
+ */
+app.route('/api/admin', photoAdmin)
 
 /** Database reachability, for humans and monitoring — never the platform probe. */
 app.get('/api/health/db', async (c) => {
