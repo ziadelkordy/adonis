@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
 import type { Place } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
-import { searchUrlFor } from '@/lib/placeLinks'
+import { lookupLinkFor } from '@/lib/placeLinks'
 import { formatDistance, formatDuration } from '@/lib/format'
 import { PhotoCredit, PlaceImage } from './PlaceImage'
 import { CheckIcon, ClockIcon, PinIcon, PlusIcon } from './icons'
@@ -115,12 +115,12 @@ export function PlaceCard({
           * and making the fallback look weaker would suggest the place itself is.
           */}
         <a
-          href={place.website ?? searchUrlFor(place)}
+          href={lookupLinkFor(place).href}
           target="_blank"
           rel="noreferrer noopener"
           className="w-fit truncate text-xs font-medium text-bloom-600 underline decoration-bloom-200 underline-offset-2 hover:decoration-bloom-500"
         >
-          {place.website ? 'Visit website' : 'Search the web'}
+          {lookupLinkFor(place).label}
         </a>
 
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 border-t border-ink-100 pt-3.5">

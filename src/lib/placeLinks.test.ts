@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Place } from './api'
-import { mapsUrlFor, searchUrlFor } from './placeLinks'
+import { lookupLinkFor, mapsUrlFor, searchUrlFor } from './placeLinks'
 
 function place(overrides: Partial<Place> = {}): Place {
   return {
@@ -69,5 +69,33 @@ describe('mapsUrlFor', () => {
   it('keeps negative longitudes intact', () => {
     const center = new URL(mapsUrlFor(place({ lat: -33.86, lon: 151.2 }))).searchParams.get('center')
     expect(center).toBe('-33.86,151.2')
+  })
+})
+
+describe('lookupLinkFor', () => {
+  it('prefers a real website over any search', () => {
+    const link = lookupLinkFor(place({ website: 'https://example.com' }))
+    expect(link).toEqual({ href: 'https://example.com', label: 'Visit website' })
+  })
+
+  it('searches the web when a locality can narrow the name', () => {
+    const link = lookupLinkFor(place())
+    expect(link.label).toBe('Search the web')
+    expect(queryOf(link.href, 'q')).toBe('El Torito Milpitas')
+  })
+
+  it('goes to the map when there is no locality to narrow with', () => {
+    // Real case: a restaurant named "Solidarity" with no locality recorded. A
+    // bare-name web search finds anything but the place; the map has coordinates.
+    const link = lookupLinkFor(place({ name: 'Solidarity', neighborhood: null }))
+    expect(link.label).toBe('Find on the map')
+    expect(new URL(link.href).searchParams.get('center')).toBe('37.4332,-121.8989')
+  })
+
+  it('never returns an empty target', () => {
+    for (const p of [place(), place({ neighborhood: null }), place({ website: 'https://x.co' })]) {
+      expect(lookupLinkFor(p).href).toMatch(/^https:\/\//)
+      expect(lookupLinkFor(p).label.length).toBeGreaterThan(0)
+    }
   })
 })

@@ -28,9 +28,11 @@ function localityFor(place: Place): string | null {
  *
  * The locality matters more than it looks: "El Torito" or "Peet's Coffee" alone
  * return a chain's national homepage or a different branch entirely, while
- * "El Torito Milpitas" reaches the actual one. Falls back to coordinates-free
- * name-only search when OSM records no locality, which is still far better than
- * no link.
+ * "El Torito Milpitas" reaches the actual one.
+ *
+ * Only worth using when a locality exists — see lookupLinkFor, which routes a
+ * place with no locality to the map instead, where its coordinates can do the
+ * narrowing that its name cannot.
  */
 export function searchUrlFor(place: Place): string {
   const locality = localityFor(place)
@@ -52,4 +54,23 @@ export function mapsUrlFor(place: Place): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     query,
   )}&center=${place.lat},${place.lon}`
+}
+
+/**
+ * The single best "tell me more about this place" link, and what to call it.
+ *
+ * Three cases, because the best target genuinely differs:
+ *
+ *   - A recorded website wins outright.
+ *   - Otherwise a web search, when OSM knows the locality to narrow it with.
+ *   - Otherwise the map, because a bare-name web search is close to useless for
+ *     the names this actually happens to. Observed live: a place called
+ *     "Solidarity" with no locality recorded produced the query "Solidarity",
+ *     which finds anything but the restaurant. The map has the coordinates and so
+ *     needs no help from the name at all.
+ */
+export function lookupLinkFor(place: Place): { href: string; label: string } {
+  if (place.website) return { href: place.website, label: 'Visit website' }
+  if (localityFor(place)) return { href: searchUrlFor(place), label: 'Search the web' }
+  return { href: mapsUrlFor(place), label: 'Find on the map' }
 }
