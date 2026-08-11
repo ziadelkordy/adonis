@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import type { Place } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
+import { searchUrlFor } from '@/lib/placeLinks'
 import { formatDistance, formatDuration } from '@/lib/format'
 import { PhotoCredit, PlaceImage } from './PlaceImage'
 import { CheckIcon, ClockIcon, PinIcon, PlusIcon } from './icons'
@@ -108,16 +109,19 @@ export function PlaceCard({
           </p>
         )}
 
-        {place.website && (
-          <a
-            href={place.website}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="w-fit truncate text-xs font-medium text-bloom-600 underline decoration-bloom-200 underline-offset-2 hover:decoration-bloom-500"
-          >
-            Visit website
-          </a>
-        )}
+        {/*
+          * A search stands in when OSM records no website, which is the majority
+          * of places. Styled identically: to the reader this is just "the link",
+          * and making the fallback look weaker would suggest the place itself is.
+          */}
+        <a
+          href={place.website ?? searchUrlFor(place)}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="w-fit truncate text-xs font-medium text-bloom-600 underline decoration-bloom-200 underline-offset-2 hover:decoration-bloom-500"
+        >
+          {place.website ? 'Visit website' : 'Search the web'}
+        </a>
 
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 border-t border-ink-100 pt-3.5">
           <span

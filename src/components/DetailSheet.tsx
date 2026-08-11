@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { motion } from 'motion/react'
 import type { Place } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
+import { mapsUrlFor, searchUrlFor } from '@/lib/placeLinks'
 import { formatDistance, formatDuration } from '@/lib/format'
 import { MapView } from './MapView'
 import { PhotoCredit, PlaceImage } from './PlaceImage'
@@ -185,7 +186,7 @@ export function DetailSheet({
               </Row>
             )}
 
-            {place.website && (
+            {place.website ? (
               <Row label="Website">
                 <a
                   href={place.website}
@@ -196,7 +197,37 @@ export function DetailSheet({
                   {place.website.replace(/^https?:\/\//, '')}
                 </a>
               </Row>
+            ) : (
+              <Row label="Website">
+                {/*
+                  * Most places have none recorded, so this row stays rather than
+                  * disappearing — an absent row reads as "nothing to look up",
+                  * when in fact the place simply isn't in OpenStreetMap's data.
+                  */}
+                <span className="text-ink-500">
+                  Not in OpenStreetMap —{' '}
+                  <a
+                    href={searchUrlFor(place)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="font-medium text-bloom-600 hover:underline"
+                  >
+                    search the web
+                  </a>
+                </span>
+              </Row>
             )}
+
+            <Row label="Map">
+              <a
+                href={mapsUrlFor(place)}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="font-medium text-bloom-600 hover:underline"
+              >
+                Open in Google Maps
+              </a>
+            </Row>
 
             <Row label="Coords">
               <span className="font-mono text-[0.8125rem] text-ink-700">
