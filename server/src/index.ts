@@ -21,6 +21,7 @@ import { assertDatabaseReachable, sql } from './db.ts'
 import { photoAdmin } from './photoAdmin.ts'
 import { withPhotos } from './photos.ts'
 import { checkRateLimit } from './rateLimit.ts'
+import { WeatherUnavailableError, fetchForecast } from './weather.ts'
 import { loadEvents, parseEventSnapshot, upsertEvent } from './schedule.ts'
 import { fetchEventsBundle, isEventsConfigured } from './events.ts'
 import {
@@ -503,6 +504,29 @@ app.get('/api/events/nearby', async (c) => {
   } catch (error) {
     console.error('events failed:', error)
     return c.json({ error: 'Could not load events.' }, 500)
+  }
+})
+
+/*
+ * Weather for planning. Public and keyless, like browsing: deciding whether today
+ * is an outdoors day shouldn't require an account.
+ */
+app.get('/api/weather', async (c) => {
+  const lat = parseCoord(c.req.query('lat'), 90)
+  const lon = parseCoord(c.req.query('lon'), 180)
+  if (lat === null || lon === null) {
+    return c.json({ error: 'lat and lon are required and must be valid coordinates.' }, 400)
+  }
+
+  try {
+    return c.json(await fetchForecast(lat, lon))
+  } catch (error) {
+    if (error instanceof WeatherUnavailableError) {
+      // 503, not 500: the forecast service is down, this one is fine.
+      return c.json({ error: `Forecast unavailable (${error.message}).` }, 503)
+    }
+    console.error('weather failed:', error)
+    return c.json({ error: 'Could not load the forecast.' }, 500)
   }
 })
 

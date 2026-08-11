@@ -3,10 +3,12 @@ import { motion } from 'motion/react'
 import type { DayItem, Place, ScheduledEvent } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/data'
 import { formatDistance, formatDuration, formatTime, pluralize } from '@/lib/format'
+import { dayForecast, rainChanceAt, useForecast } from '@/lib/useForecast'
 import { cx } from '@/lib/cx'
 import { describeDate, describeDateInline, shiftDate, todayISO } from '@/lib/router'
 import { DAY_END_MIN, DAY_START_MIN, type AppState } from '@/lib/useAppState'
 import { AuthPanel } from '@/components/AuthPanel'
+import { WeatherStrip } from '@/components/WeatherStrip'
 import { ClockIcon, PinIcon, TrashIcon, XIcon } from '@/components/icons'
 import { Badge, Button, EmptyState } from '@/components/ui'
 
@@ -35,6 +37,8 @@ interface Entry {
   kindEmoji: string
   hue: string
   detail: string | null
+  /** Whether rain would actually spoil this — drives the forecast warning. */
+  isOutdoor: boolean
   /** Places open the detail panel; events link out to the provider. */
   placeId: string | null
   href: string | null
@@ -67,6 +71,7 @@ function entryForPlace(item: DayItem, place: Place): Entry {
     kindEmoji: category.emoji,
     hue: category.hue,
     detail: place.openingHours,
+    isOutdoor: place.category === 'outdoors' || place.category === 'water',
     placeId: place.id,
     href: null,
   }
@@ -74,6 +79,9 @@ function entryForPlace(item: DayItem, place: Place): Entry {
 
 function entryForEvent(item: DayItem, event: ScheduledEvent): Entry {
   return {
+    // Neither ESPN nor a ticket listing says whether a venue is open-air, and
+    // guessing would warn about rain at indoor arenas.
+    isOutdoor: false,
     item,
     startMin: item.startMin,
     endMin: item.startMin + event.durationMin,
@@ -224,15 +232,25 @@ function TimelineItem({
   onMove,
   onOpen,
   isNow,
+  rainChance,
 }: {
   entry: Entry
   onRemove: () => void
   onMove: (delta: number) => void
   onOpen: () => void
   isNow: boolean
+  /** Set only for outdoor items at an hour where rain is actually likely. */
+  rainChance: number | null
 }) {
   const height = Math.max(entry.durationMin * PX_PER_MIN, 72)
   const interactive = entry.placeId !== null
+
+  /*
+   * Only worth interrupting someone for when rain is more likely than not at the
+   * hour they've planned. A badge on every 30% afternoon is noise, and noise here
+   * teaches people to ignore the one warning that mattered.
+   */
+  const rainWarning = rainChance !== null && rainChance >= 50 ? rainChance : null
 
   /*
    * Drag to reschedule.
@@ -388,6 +406,12 @@ function TimelineItem({
                 <span aria-hidden>{entry.kindEmoji}</span>
                 {entry.kindLabel}
               </Badge>
+              {rainWarning !== null && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-lagoon-50 px-2 py-0.5 font-semibold text-lagoon-600 ring-1 ring-lagoon-300/60 ring-inset">
+                  <span aria-hidden>💧</span>
+                  {rainWarning}% rain at this hour
+                </span>
+              )}
               {entry.detail && <span className="truncate">{entry.detail}</span>}
             </div>
           )}
@@ -487,8 +511,11 @@ export function Today({ state }: { state: AppState }) {
     openDetail,
     date,
     locationLabel,
+    coords,
   } = state
   const currentMinute = useCurrentMinute()
+  const forecast = useForecast(coords.lat, coords.lon)
+  const today = dayForecast(forecast, date)
   const isToday = date === todayISO()
 
   const entries = useMemo<Entry[]>(
@@ -644,8 +671,10 @@ export function Today({ state }: { state: AppState }) {
           )}
         </div>
 
-        <div className="relative mt-6">
+        <div className="relative mt-6 space-y-3">
           <DateNav date={date} onChange={setDate} />
+          {/* Only for dates the forecast actually covers — a week ahead. */}
+          {today && <WeatherStrip day={today} />}
         </div>
 
         <dl className="relative mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -742,6 +771,9 @@ export function Today({ state }: { state: AppState }) {
                     onRemove={() => void removeFromDay(entry.item.id)}
                     onMove={(delta) => void moveInDay(entry.item.id, delta)}
                     onOpen={() => entry.placeId && openDetail(entry.placeId)}
+                    rainChance={
+                      entry.isOutdoor ? rainChanceAt(forecast, date, entry.startMin) : null
+                    }
                   />
                 ))}
               </ul>
