@@ -216,6 +216,38 @@ app.get('/api/auth/me', async (c) => {
   return user ? c.json({ user }) : c.json({ user: null })
 })
 
+/*
+ * Deleting your own account.
+ *
+ * There was no way to do this at all, which is both a gap anyone would expect
+ * closed and a practical one — a throwaway account made to check something could
+ * only be left behind forever.
+ *
+ * Requires the current password even though the session already proves identity:
+ * this is irreversible, and a borrowed or forgotten-unlocked session should not be
+ * enough to wipe someone's saved places. Everything the user owns goes with it,
+ * via ON DELETE CASCADE on sessions, saved_items and scheduled_items.
+ */
+app.delete('/api/auth/account', async (c) => {
+  const user = await findSessionUser(getCookie(c, SESSION_COOKIE))
+  if (!user) return c.json({ error: 'Not signed in.' }, 401)
+
+  const body = await c.req.json().catch(() => ({}) as { password?: unknown })
+  const password = typeof body.password === 'string' ? body.password : ''
+  if (!password) return c.json({ error: 'Your password is required to delete the account.' }, 400)
+
+  const [row] = await sql<{ password_hash: string }[]>`
+    SELECT password_hash FROM users WHERE id = ${user.id}
+  `
+  if (!row || !(await verifyPassword(password, row.password_hash))) {
+    return c.json({ error: 'That password is not correct.' }, 401)
+  }
+
+  await sql`DELETE FROM users WHERE id = ${user.id}`
+  setCookie(c, SESSION_COOKIE, '', { path: '/', maxAge: 0 })
+  return c.json({ ok: true })
+})
+
 /* -------------------------------------------------------------------------- */
 /* Authenticated routes                                                        */
 /* -------------------------------------------------------------------------- */
