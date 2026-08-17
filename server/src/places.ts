@@ -494,6 +494,31 @@ async function readCache(key: string): Promise<Place[] | null> {
   return loadPlaces(ids)
 }
 
+/**
+ * The same cache entry, ignoring its expiry.
+ *
+ * Used only after the upstream has already failed. Overpass is unreachable from
+ * this host roughly half the time — measured live, London failed three requests in
+ * a row — and when the seven-day TTL lapsed on the pre-warmed Bay Area data the
+ * app went straight back to being a coin flip, because an expired entry was
+ * treated exactly like no entry at all.
+ *
+ * A three-week-old list of restaurants is overwhelmingly still correct, and it is
+ * unarguably better than an error page. Places are not perishable data; treating
+ * the TTL as a hard wall rather than a refresh hint was the mistake.
+ */
+async function readStaleCache(key: string): Promise<Place[] | null> {
+  const rows = await sql<{ place_ids: string[]; age_days: number }[]>`
+    SELECT place_ids, EXTRACT(DAY FROM now() - fetched_at)::int AS age_days
+    FROM place_queries
+    WHERE cache_key = ${key}
+  `
+  const ids = rows[0]?.place_ids
+  if (!ids || ids.length === 0) return null
+  console.warn(`places: serving ${rows[0].age_days}-day-old cache for ${key}`)
+  return loadPlaces(ids)
+}
+
 export async function loadPlaces(ids: string[]): Promise<Place[]> {
   if (ids.length === 0) return []
 
@@ -749,7 +774,16 @@ export async function fetchEscapes(
   const cached = await readCache(key)
   if (cached) return { places: withDistance(cached, lat, lon), cached: true }
 
-  const elements = await queryOverpass(buildEscapeQuery(lat, lon, radiusM), WIDE_AREA_BUDGET_MS)
+  // Same reasoning as fetchNearby: stale escapes beat no escapes, and this query
+  // is the slowest and likeliest to time out.
+  let elements: OverpassElement[]
+  try {
+    elements = await queryOverpass(buildEscapeQuery(lat, lon, radiusM), WIDE_AREA_BUDGET_MS)
+  } catch (error) {
+    const stale = await readStaleCache(key)
+    if (stale) return { places: withDistance(stale, lat, lon), cached: true }
+    throw error
+  }
 
   const byId = new Map<string, Place>()
   for (const element of elements) {
@@ -805,7 +839,18 @@ export async function fetchNearby(
     return { places: withDistance(cached, lat, lon), cached: true }
   }
 
-  const elements = await queryOverpass(buildQuery(lat, lon, radiusM, categories))
+  let elements: OverpassElement[]
+  try {
+    elements = await queryOverpass(buildQuery(lat, lon, radiusM, categories))
+  } catch (error) {
+    /*
+     * Upstream is down. Prefer stale data over an error, and only surface the
+     * failure when there is genuinely nothing to show.
+     */
+    const stale = await readStaleCache(key)
+    if (stale) return { places: withDistance(stale, lat, lon), cached: true }
+    throw error
+  }
 
   const byId = new Map<string, Place>()
   for (const element of elements) {
