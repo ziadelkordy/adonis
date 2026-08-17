@@ -1,4 +1,5 @@
 import { sql } from './db.ts'
+import { fetchNearbyFromGoogle, isGoogleConfigured } from './googlePlaces.ts'
 
 /** Identifies us to the free OSM services, as their usage policies require. */
 const USER_AGENT = 'Adonis/0.1 (personal project; local development)'
@@ -778,6 +779,25 @@ export async function fetchNearby(
   radiusM: number,
   categories: Category[],
 ): Promise<NearbyResult> {
+  /*
+   * Google first when a key is configured, because Overpass is unreliable from the
+   * deployed host — measured at roughly half of new-city requests failing.
+   *
+   * Its results are never cached: the Maps Platform terms forbid warehousing names
+   * and hours, so `cached` is always false on this path. If Google errors we fall
+   * through to the OSM path rather than failing, which keeps the app working
+   * during a Google outage or a billing lapse and is why this is a soft check
+   * rather than an exclusive branch.
+   */
+  if (isGoogleConfigured()) {
+    try {
+      const places = await fetchNearbyFromGoogle(lat, lon, radiusM, categories)
+      if (places.length > 0) return { places: withDistance(places, lat, lon), cached: false }
+    } catch (error) {
+      console.error('google places failed, falling back to OpenStreetMap:', error)
+    }
+  }
+
   const key = cacheKey(lat, lon, radiusM, categories)
 
   const cached = await readCache(key)
