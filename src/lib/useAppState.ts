@@ -243,11 +243,32 @@ export function useAppState(router: Router) {
   /* Auth actions                                                           */
   /* ---------------------------------------------------------------------- */
 
+  /*
+   * Held so the codes screen can show them. Kept only in memory and cleared once
+   * acknowledged — writing them to storage would defeat the point of hashing them
+   * on the server.
+   */
+  const [newRecoveryCodes, setNewRecoveryCodes] = useState<string[] | null>(null)
+
   const signup = useCallback(
     async (email: string, password: string, displayName: string) => {
       const result = await api.signup(email, password, displayName)
       setUser(result.user)
+      setNewRecoveryCodes(result.recoveryCodes)
       showToast(`Welcome, ${result.user.displayName}.`)
+    },
+    [showToast],
+  )
+
+  const resetPassword = useCallback(
+    async (code: string, password: string) => {
+      const result = await api.resetPassword(code, password)
+      setUser(result.user)
+      showToast(
+        result.remainingCodes > 0
+          ? `Password changed. ${result.remainingCodes} recovery codes left.`
+          : 'Password changed. That was your last recovery code — generate more.',
+      )
     },
     [showToast],
   )
@@ -514,6 +535,9 @@ export function useAppState(router: Router) {
     user,
     authStatus,
     signup,
+    resetPassword,
+    newRecoveryCodes,
+    acknowledgeRecoveryCodes: () => setNewRecoveryCodes(null),
     login,
     logout,
 

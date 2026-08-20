@@ -4,6 +4,7 @@ import { useRouter } from '@/lib/router'
 import { useAppState } from '@/lib/useAppState'
 import { DetailSheet } from '@/components/DetailSheet'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { RecoveryCodes } from '@/components/RecoveryCodes'
 import { Nav } from '@/components/Nav'
 import { CheckIcon, SparkleIcon } from '@/components/icons'
 import { Escapes } from '@/views/Escapes'
@@ -69,6 +70,17 @@ export default function App() {
           </ErrorBoundary>
         </motion.div>
       </main>
+
+      {/*
+        * Above everything, including the detail sheet: these are shown once and
+        * cannot be retrieved, so nothing may cover them.
+        */}
+      {state.newRecoveryCodes && (
+        <RecoveryCodes
+          codes={state.newRecoveryCodes}
+          onDone={state.acknowledgeRecoveryCodes}
+        />
+      )}
 
       {detailPlace && (
         <DetailSheet

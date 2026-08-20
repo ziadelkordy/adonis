@@ -4,7 +4,7 @@ import { cx } from '@/lib/cx'
 import type { AppState } from '@/lib/useAppState'
 import { Button } from './ui'
 
-type Mode = 'login' | 'signup'
+type Mode = 'login' | 'signup' | 'reset'
 
 const FIELD_CLASSES =
   'h-11 w-full rounded-full bg-shell px-4 text-sm text-ink-900 ring-1 ring-ink-200 ring-inset ' +
@@ -24,6 +24,7 @@ export function AuthPanel({
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [recoveryCode, setRecoveryCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -34,6 +35,7 @@ export function AuthPanel({
 
     try {
       if (mode === 'signup') await state.signup(email, password, displayName)
+      else if (mode === 'reset') await state.resetPassword(recoveryCode, password)
       else await state.login(email, password)
     } catch (caught) {
       setError(
@@ -59,7 +61,7 @@ export function AuthPanel({
               setMode(option)
               setError(null)
             }}
-            aria-pressed={mode === option}
+            aria-pressed={mode === option || (mode === 'reset' && option === 'login')}
             className={cx(
               'h-9 flex-1 rounded-full text-sm font-medium transition-colors duration-200',
               mode === option
@@ -87,6 +89,28 @@ export function AuthPanel({
           </label>
         )}
 
+        {mode === 'reset' && (
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-ink-900">Recovery code</span>
+            <input
+              type="text"
+              required
+              value={recoveryCode}
+              onChange={(event) => setRecoveryCode(event.target.value)}
+              placeholder="ABCD-2345-EFGH-6789"
+              autoComplete="off"
+              spellCheck={false}
+              className={`${FIELD_CLASSES} font-mono`}
+            />
+            {/* No email asked for: the code identifies the account by itself, and
+                asking would reveal which addresses are registered. */}
+            <span className="mt-1.5 block text-xs text-ink-500">
+              One of the codes you saved when you signed up. Each works once.
+            </span>
+          </label>
+        )}
+
+        {mode !== 'reset' && (
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-ink-900">Email</span>
           <input
@@ -99,17 +123,20 @@ export function AuthPanel({
             className={FIELD_CLASSES}
           />
         </label>
+        )}
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-ink-900">Password</span>
+          <span className="mb-1.5 block text-sm font-medium text-ink-900">
+            {mode === 'reset' ? 'New password' : 'Password'}
+          </span>
           <input
             type="password"
             required
             minLength={8}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'}
-            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+            placeholder={mode === 'login' ? 'Your password' : 'At least 8 characters'}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             className={FIELD_CLASSES}
           />
         </label>
@@ -124,9 +151,43 @@ export function AuthPanel({
         )}
 
         <Button type="submit" size="lg" disabled={busy} className="w-full">
-          {busy ? 'One moment…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+          {busy
+            ? 'One moment…'
+            : mode === 'signup'
+              ? 'Create account'
+              : mode === 'reset'
+                ? 'Set new password'
+                : 'Sign in'}
         </Button>
       </form>
+
+      {mode !== 'signup' && (
+        <p className="mt-3 text-center text-xs text-ink-500">
+          {mode === 'login' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMode('reset')
+                setError(null)
+              }}
+              className="underline underline-offset-2 hover:text-ink-800"
+            >
+              Forgotten your password?
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login')
+                setError(null)
+              }}
+              className="underline underline-offset-2 hover:text-ink-800"
+            >
+              Back to signing in
+            </button>
+          )}
+        </p>
+      )}
 
       <p className="mt-4 text-center text-xs text-ink-500">
         Your day and saved places are stored on your own machine, in Adonis's database.

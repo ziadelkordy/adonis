@@ -20,6 +20,11 @@ import {
 import { assertDatabaseReachable, sql } from './db.ts'
 import { photoAdmin } from './photoAdmin.ts'
 import { withPhotos } from './photos.ts'
+import {
+  consumeRecoveryCode,
+  issueRecoveryCodes,
+  remainingCodeCount,
+} from './recovery.ts'
 import { checkRateLimit } from './rateLimit.ts'
 import { loadEvents, parseEventSnapshot, upsertEvent } from './schedule.ts'
 import { fetchEventsBundle, isEventsConfigured } from './events.ts'
@@ -171,7 +176,67 @@ app.post('/api/auth/signup', async (c) => {
   const { token } = await createSession(user.id)
   issueSession(c, token)
 
-  return c.json({ user: { id: user.id, email: user.email, displayName: user.display_name } }, 201)
+  /*
+   * The only moment these exist in plaintext. There is no email provider here, so
+   * they are the entire account-recovery story — returned once, never retrievable,
+   * and the client is responsible for making the user save them.
+   */
+  const recoveryCodes = await issueRecoveryCodes(user.id)
+
+  return c.json(
+    {
+      user: { id: user.id, email: user.email, displayName: user.display_name },
+      recoveryCodes,
+    },
+    201,
+  )
+})
+
+/*
+ * Resetting a forgotten password with a recovery code.
+ *
+ * Deliberately does not take an email address. The code identifies the account by
+ * itself, and asking for an address would turn this into an oracle for which
+ * addresses are registered. Rate-limited like the other credential endpoints.
+ */
+app.post('/api/auth/reset', async (c) => {
+  const limited = tooManyAttempts(c, 'reset')
+  if (limited) return limited
+
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body !== 'object') return c.json({ error: 'Invalid request body.' }, 400)
+
+  const { code, password } = body as Record<string, unknown>
+  if (typeof code !== 'string' || !code.trim()) {
+    return c.json({ error: 'Enter one of your recovery codes.' }, 400)
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return c.json({ error: 'Password must be at least 8 characters.' }, 400)
+  }
+
+  const userId = await consumeRecoveryCode(code)
+  if (!userId) return c.json({ error: 'That code is not valid, or has already been used.' }, 401)
+
+  const passwordHash = await hashPassword(password)
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`
+
+  /*
+   * Every existing session is destroyed. If the password was reset because someone
+   * else had the account, leaving their session alive would defeat the whole point.
+   */
+  await sql`DELETE FROM sessions WHERE user_id = ${userId}`
+
+  const rows = await sql<{ id: string; email: string; display_name: string }[]>`
+    SELECT id, email, display_name FROM users WHERE id = ${userId}
+  `
+  const user = rows[0]
+  const { token } = await createSession(user.id)
+  issueSession(c, token)
+
+  return c.json({
+    user: { id: user.id, email: user.email, displayName: user.display_name },
+    remainingCodes: await remainingCodeCount(user.id),
+  })
 })
 
 app.post('/api/auth/login', async (c) => {
@@ -228,6 +293,78 @@ app.get('/api/auth/me', async (c) => {
  * enough to wipe someone's saved places. Everything the user owns goes with it,
  * via ON DELETE CASCADE on sessions, saved_items and scheduled_items.
  */
+/*
+ * Changing a password while signed in, and seeing how many recovery codes are
+ * left. Both require the current password: a session alone should not be enough to
+ * lock the real owner out.
+ */
+app.post('/api/auth/password', async (c) => {
+  const limited = tooManyAttempts(c, 'password')
+  if (limited) return limited
+
+  const user = await findSessionUser(getCookie(c, SESSION_COOKIE))
+  if (!user) return c.json({ error: 'Not signed in.' }, 401)
+
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body !== 'object') return c.json({ error: 'Invalid request body.' }, 400)
+
+  const { currentPassword, newPassword } = body as Record<string, unknown>
+  if (typeof newPassword !== 'string' || newPassword.length < 8) {
+    return c.json({ error: 'New password must be at least 8 characters.' }, 400)
+  }
+
+  const [row] = await sql<{ password_hash: string }[]>`
+    SELECT password_hash FROM users WHERE id = ${user.id}
+  `
+  if (
+    !row ||
+    typeof currentPassword !== 'string' ||
+    !(await verifyPassword(currentPassword, row.password_hash))
+  ) {
+    return c.json({ error: 'Your current password is not correct.' }, 401)
+  }
+
+  const passwordHash = await hashPassword(newPassword)
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${user.id}`
+
+  /*
+   * Other sessions are dropped, this one kept. Changing a password is how someone
+   * responds to suspecting a device is compromised, so every other login must end —
+   * but signing the user out of the tab they are actively using would be hostile.
+   */
+  const current = getCookie(c, SESSION_COOKIE)
+  await sql`DELETE FROM sessions WHERE user_id = ${user.id} AND token <> ${current ?? ''}`
+
+  return c.json({ ok: true })
+})
+
+/** Fresh codes, invalidating the old set. Requires the current password. */
+app.post('/api/auth/recovery-codes', async (c) => {
+  const limited = tooManyAttempts(c, 'recovery-codes')
+  if (limited) return limited
+
+  const user = await findSessionUser(getCookie(c, SESSION_COOKIE))
+  if (!user) return c.json({ error: 'Not signed in.' }, 401)
+
+  const body = await c.req.json().catch(() => ({}) as { password?: unknown })
+  const password = typeof body.password === 'string' ? body.password : ''
+
+  const [row] = await sql<{ password_hash: string }[]>`
+    SELECT password_hash FROM users WHERE id = ${user.id}
+  `
+  if (!row || !(await verifyPassword(password, row.password_hash))) {
+    return c.json({ error: 'Your password is required to generate new codes.' }, 401)
+  }
+
+  return c.json({ recoveryCodes: await issueRecoveryCodes(user.id) })
+})
+
+app.get('/api/auth/recovery-codes/count', async (c) => {
+  const user = await findSessionUser(getCookie(c, SESSION_COOKIE))
+  if (!user) return c.json({ error: 'Not signed in.' }, 401)
+  return c.json({ remaining: await remainingCodeCount(user.id) })
+})
+
 app.delete('/api/auth/account', async (c) => {
   const user = await findSessionUser(getCookie(c, SESSION_COOKIE))
   if (!user) return c.json({ error: 'Not signed in.' }, 401)

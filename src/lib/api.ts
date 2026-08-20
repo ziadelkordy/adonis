@@ -180,7 +180,7 @@ export const api = {
   me: () => request<{ user: ApiUser | null }>('/auth/me'),
 
   signup: (email: string, password: string, displayName: string) =>
-    request<{ user: ApiUser }>('/auth/signup', {
+    request<{ user: ApiUser; recoveryCodes: string[] }>('/auth/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password, displayName }),
     }),
@@ -189,6 +189,13 @@ export const api = {
     request<{ user: ApiUser }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    }),
+
+  /** Recovery-code reset. Takes no email — the code identifies the account. */
+  resetPassword: (code: string, password: string) =>
+    request<{ user: ApiUser; remainingCodes: number }>('/auth/reset', {
+      method: 'POST',
+      body: JSON.stringify({ code, password }),
     }),
 
   logout: () => request<{ ok: true }>('/auth/logout', { method: 'POST' }),
